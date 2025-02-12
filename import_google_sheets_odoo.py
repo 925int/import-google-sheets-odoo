@@ -29,7 +29,8 @@ def process_uploaded_file():
 def process_csv(csv_file):
     try:
         print("📥 Chargement du fichier CSV...")
-        df = pd.read_csv(csv_file, delimiter='\t')  # Délimiteur tabulation
+        df = pd.read_csv(csv_file, delimiter=',')  # Délimiteur virgule
+        df.columns = df.columns.str.strip()  # Normaliser les noms de colonnes
     except Exception as e:
         return f"❌ Erreur lors du chargement du fichier CSV : {str(e)}"
     
@@ -37,8 +38,14 @@ def process_csv(csv_file):
         "Kunden-Nr", "Artikel-Nr.", "Herstellerartikelnummer", "Artikelbezeichnung in FR",
         "UVP exkl. MwSt.", "Nettopreis exkl. MwSt.", "Brand", "EAN-Code"
     ]
-    if not all(col in df.columns for col in expected_columns):
-        return "❌ Le fichier CSV ne contient pas toutes les colonnes attendues."
+    found_columns = df.columns.tolist()
+    
+    if not all(col in found_columns for col in expected_columns):
+        missing_columns = [col for col in expected_columns if col not in found_columns]
+        extra_columns = [col for col in found_columns if col not in expected_columns]
+        print("❌ Colonnes attendues mais manquantes :", missing_columns)
+        print("⚠️ Colonnes trouvées en trop :", extra_columns)
+        return "❌ Le fichier CSV ne contient pas toutes les colonnes attendues. Vérifiez les noms et formats."
     
     conn = get_db_connection()
     cursor = conn.cursor()
