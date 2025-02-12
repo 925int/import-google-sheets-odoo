@@ -2,10 +2,12 @@ import pandas as pd
 import psycopg2
 import os
 
+# 🔹 Vérification et installation de psycopg2 si nécessaire
 try:
-    import micropip
+    import psycopg2
 except ModuleNotFoundError:
-    print("⚠️ Module 'micropip' non trouvé. Assurez-vous que l'environnement supporte l'installation des dépendances.")
+    print("❌ Le module 'psycopg2' n'est pas installé. Installez-le avec : pip install psycopg2-binary")
+    exit()
 
 # 🔹 Connexion à PostgreSQL
 POSTGRES_HOST = "node172643-env-8840643.jcloud.ik-server.com"
