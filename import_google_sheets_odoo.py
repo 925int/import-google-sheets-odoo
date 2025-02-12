@@ -1,13 +1,10 @@
 import os
 import pandas as pd
 import psycopg2
-from flask import Flask, request, render_template_string
 from psycopg2.extras import execute_values
 
-# 🔹 Configuration de l'application Flask
-app = Flask(__name__)
+# 🔹 Chemin du dossier où le fichier est uploadé
 UPLOAD_FOLDER = '/var/www/webroot/ROOT/uploads/'
-os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
 # 🔹 Connexion à PostgreSQL
 POSTGRES_HOST = "node172643-env-8840643.jcloud.ik-server.com"
@@ -23,41 +20,11 @@ def get_db_connection():
         password=POSTGRES_PASSWORD
     )
 
-# 🔹 Interface HTML pour uploader un fichier
-HTML_TEMPLATE = """
-<!DOCTYPE html>
-<html>
-<head>
-    <title>Uploader un fichier CSV</title>
-</head>
-<body>
-    <h2>Importer un fichier CSV</h2>
-    <form action="/upload" method="post" enctype="multipart/form-data">
-        <input type="file" name="file" required>
-        <input type="submit" value="Uploader">
-    </form>
-</body>
-</html>
-"""
-
-@app.route('/')
-def index():
-    return render_template_string(HTML_TEMPLATE)
-
-@app.route('/upload', methods=['POST'])
-def upload_file():
-    if 'file' not in request.files:
-        return "❌ Aucun fichier sélectionné."
-    
-    file = request.files['file']
-    if file.filename == '':
-        return "❌ Aucun fichier sélectionné."
-    
-    filepath = os.path.join(UPLOAD_FOLDER, file.filename)
-    file.save(filepath)
-    
-    # 🔹 Charger et importer les données dans PostgreSQL
-    return process_csv(filepath)
+def process_uploaded_file():
+    csv_file = os.path.join(UPLOAD_FOLDER, "Derendinger - PF-9208336.csv")
+    if not os.path.exists(csv_file):
+        return f"❌ Fichier non trouvé : {csv_file}"
+    return process_csv(csv_file)
 
 def process_csv(csv_file):
     try:
@@ -118,4 +85,5 @@ def process_csv(csv_file):
     return f"✅ {len(data_to_insert)} produits insérés dans PostgreSQL."
 
 if __name__ == '__main__':
-    app.run(host='128.65.197.180', port=5000, debug=True)
+    print("📂 Vérification des fichiers uploadés...")
+    print(process_uploaded_file())
