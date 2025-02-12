@@ -4,6 +4,7 @@ import pandas as pd
 import requests
 import os
 import json
+from googleapiclient.discovery import build
 
 # 🔹 Récupération des credentials depuis la variable d'environnement
 credentials_json = os.getenv("GOOGLE_CREDENTIALS_JSON")
@@ -11,11 +12,43 @@ if not credentials_json:
     raise ValueError("Les credentials Google Cloud ne sont pas définis dans les variables d'environnement.")
 
 creds_data = json.loads(credentials_json)
-creds = Credentials.from_service_account_info(creds_data)
+creds = Credentials.from_service_account_info(creds_data, scopes=[
+    "https://www.googleapis.com/auth/spreadsheets.readonly",
+    "https://www.googleapis.com/auth/drive.metadata.readonly"
+])
 client = gspread.authorize(creds)
 
-# 🔹 Demande à l'utilisateur quel fichier importer
-sheet_id = input("Entrez l'ID du fichier Google Sheets à importer : ")
+# 🔹 Connexion à Google Drive API
+service = build("drive", "v3", credentials=creds)
+
+# 🔹 Récupérer la liste des fichiers Google Sheets
+results = service.files().list(
+    q="mimeType='application/vnd.google-apps.spreadsheet'",
+    fields="files(id, name)",
+).execute()
+
+files = results.get("files", [])
+
+if not files:
+    print("❌ Aucun fichier Google Sheets trouvé.")
+    exit()
+
+# 🔹 Afficher la liste des fichiers disponibles
+print("\n📂 Fichiers Google Sheets disponibles :")
+for i, file in enumerate(files):
+    print(f"{i + 1}. {file['name']} (ID: {file['id']})")
+
+# 🔹 Demander à l'utilisateur de choisir un fichier
+choice = int(input("\nEntrez le numéro du fichier à importer : ")) - 1
+if choice < 0 or choice >= len(files):
+    print("❌ Numéro invalide.")
+    exit()
+
+# 🔹 Sélectionner le fichier choisi
+sheet_id = files[choice]["id"]
+print(f"\n✅ Fichier sélectionné : {files[choice]['name']} (ID: {sheet_id})")
+
+# 🔹 Demander le nom de l'onglet
 sheet_name = input("Entrez le nom de l'onglet à importer : ")
 
 # Ouvre la feuille Google Sheets
