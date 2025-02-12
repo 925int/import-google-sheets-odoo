@@ -1,13 +1,13 @@
+import os
 import pandas as pd
 import psycopg2
-import os
+from flask import Flask, request, render_template_string
+from psycopg2.extras import execute_values
 
-# 🔹 Vérification et installation de psycopg2 si nécessaire
-try:
-    import psycopg2
-except ModuleNotFoundError:
-    print("❌ Le module 'psycopg2' n'est pas installé. Installez-le avec : pip install psycopg2-binary")
-    exit()
+# 🔹 Configuration de l'application Flask
+app = Flask(__name__)
+UPLOAD_FOLDER = '/var/www/webroot/ROOT/uploads/'
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
 # 🔹 Connexion à PostgreSQL
 POSTGRES_HOST = "node172643-env-8840643.jcloud.ik-server.com"
@@ -15,88 +15,107 @@ POSTGRES_DB = "alex_odoo"
 POSTGRES_USER = "Odoo"
 POSTGRES_PASSWORD = "C:2&#:4G9pAO823O@3iC"
 
-try:
-    conn = psycopg2.connect(
+def get_db_connection():
+    return psycopg2.connect(
         host=POSTGRES_HOST,
         database=POSTGRES_DB,
         user=POSTGRES_USER,
         password=POSTGRES_PASSWORD
     )
-    cursor = conn.cursor()
-except psycopg2.OperationalError as e:
-    print(f"❌ Erreur de connexion à PostgreSQL : {e}")
-    exit()
 
-# 🔹 Création de la table si elle n'existe pas
-cursor.execute("""
-    CREATE TABLE IF NOT EXISTS produits (
-        id SERIAL PRIMARY KEY,
-        kunden_nr VARCHAR(255),
-        artikel_nr VARCHAR(255),
-        herstellerartikelnummer VARCHAR(255),
-        artikelbezeichnung_fr VARCHAR(255),
-        uvp_exkl_mwst NUMERIC(10,2),
-        nettopreis_exkl_mwst NUMERIC(10,2),
-        brand VARCHAR(255),
-        ean_code VARCHAR(255)
-    )
-""")
-conn.commit()
-
-# 🔹 Demander le chemin du fichier CSV à l'utilisateur
-csv_file = input("Entrez le chemin du fichier CSV : ")
-
-# 🔹 Charger le CSV en DataFrame
-try:
-    print("📥 Chargement du fichier CSV...")
-    df = pd.read_csv(csv_file, delimiter='\t')  # Délimiteur tabulation
-except FileNotFoundError:
-    print(f"❌ Fichier non trouvé : {csv_file}")
-    exit()
-except pd.errors.EmptyDataError:
-    print("❌ Le fichier CSV est vide.")
-    exit()
-except pd.errors.ParserError:
-    print("❌ Erreur lors de la lecture du fichier CSV. Vérifiez le format.")
-    exit()
-
-# 🔹 Vérifier si le fichier contient les bonnes colonnes
-expected_columns = [
-    "Kunden-Nr", "Artikel-Nr.", "Herstellerartikelnummer", "Artikelbezeichnung in FR",
-    "UVP exkl. MwSt.", "Nettopreis exkl. MwSt.", "Brand", "EAN-Code"
-]
-if not all(col in df.columns for col in expected_columns):
-    print("❌ Le fichier CSV ne contient pas toutes les colonnes attendues.")
-    print("Colonnes attendues :", expected_columns)
-    print("Colonnes trouvées :", df.columns.tolist())
-    exit()
-
-# 🔹 Insérer les données dans PostgreSQL en bulk
-insert_query = """
-    INSERT INTO produits (kunden_nr, artikel_nr, herstellerartikelnummer, artikelbezeichnung_fr, 
-                          uvp_exkl_mwst, nettopreis_exkl_mwst, brand, ean_code) 
-    VALUES %s
+# 🔹 Interface HTML pour uploader un fichier
+HTML_TEMPLATE = """
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Uploader un fichier CSV</title>
+</head>
+<body>
+    <h2>Importer un fichier CSV</h2>
+    <form action="/upload" method="post" enctype="multipart/form-data">
+        <input type="file" name="file" required>
+        <input type="submit" value="Uploader">
+    </form>
+</body>
+</html>
 """
-data_to_insert = [
-    (
-        row.get("Kunden-Nr", ""),
-        row.get("Artikel-Nr.", ""),
-        row.get("Herstellerartikelnummer", ""),
-        row.get("Artikelbezeichnung in FR", ""),
-        float(row.get("UVP exkl. MwSt.", 0)),
-        float(row.get("Nettopreis exkl. MwSt.", 0)),
-        row.get("Brand", ""),
-        row.get("EAN-Code", "")
-    )
-    for _, row in df.iterrows()
-]
 
-from psycopg2.extras import execute_values
-execute_values(cursor, insert_query, data_to_insert)
-conn.commit()
+@app.route('/')
+def index():
+    return render_template_string(HTML_TEMPLATE)
 
-print(f"✅ {len(data_to_insert)} produits insérés dans PostgreSQL.")
+@app.route('/upload', methods=['POST'])
+def upload_file():
+    if 'file' not in request.files:
+        return "❌ Aucun fichier sélectionné."
+    
+    file = request.files['file']
+    if file.filename == '':
+        return "❌ Aucun fichier sélectionné."
+    
+    filepath = os.path.join(UPLOAD_FOLDER, file.filename)
+    file.save(filepath)
+    
+    # 🔹 Charger et importer les données dans PostgreSQL
+    return process_csv(filepath)
 
-# 🔹 Fermeture de la connexion
-cursor.close()
-conn.close()
+def process_csv(csv_file):
+    try:
+        print("📥 Chargement du fichier CSV...")
+        df = pd.read_csv(csv_file, delimiter='\t')  # Délimiteur tabulation
+    except Exception as e:
+        return f"❌ Erreur lors du chargement du fichier CSV : {str(e)}"
+    
+    expected_columns = [
+        "Kunden-Nr", "Artikel-Nr.", "Herstellerartikelnummer", "Artikelbezeichnung in FR",
+        "UVP exkl. MwSt.", "Nettopreis exkl. MwSt.", "Brand", "EAN-Code"
+    ]
+    if not all(col in df.columns for col in expected_columns):
+        return "❌ Le fichier CSV ne contient pas toutes les colonnes attendues."
+    
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS produits (
+            id SERIAL PRIMARY KEY,
+            kunden_nr VARCHAR(255),
+            artikel_nr VARCHAR(255),
+            herstellerartikelnummer VARCHAR(255),
+            artikelbezeichnung_fr VARCHAR(255),
+            uvp_exkl_mwst NUMERIC(10,2),
+            nettopreis_exkl_mwst NUMERIC(10,2),
+            brand VARCHAR(255),
+            ean_code VARCHAR(255)
+        )
+    """)
+    conn.commit()
+    
+    insert_query = """
+        INSERT INTO produits (kunden_nr, artikel_nr, herstellerartikelnummer, artikelbezeichnung_fr, 
+                              uvp_exkl_mwst, nettopreis_exkl_mwst, brand, ean_code) 
+        VALUES %s
+    """
+    data_to_insert = [
+        (
+            row.get("Kunden-Nr", ""),
+            row.get("Artikel-Nr.", ""),
+            row.get("Herstellerartikelnummer", ""),
+            row.get("Artikelbezeichnung in FR", ""),
+            float(row.get("UVP exkl. MwSt.", 0)),
+            float(row.get("Nettopreis exkl. MwSt.", 0)),
+            row.get("Brand", ""),
+            row.get("EAN-Code", "")
+        )
+        for _, row in df.iterrows()
+    ]
+    execute_values(cursor, insert_query, data_to_insert)
+    conn.commit()
+    
+    cursor.close()
+    conn.close()
+    
+    return f"✅ {len(data_to_insert)} produits insérés dans PostgreSQL."
+
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=5000, debug=True)
