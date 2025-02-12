@@ -118,4 +118,4 @@ def process_csv(csv_file):
     return f"✅ {len(data_to_insert)} produits insérés dans PostgreSQL."
 
 if __name__ == '__main__':
-    app.run(host='128.65.197.180', port=80, debug=True)
+    app.run(host='128.65.197.180', port=5000, debug=True)
