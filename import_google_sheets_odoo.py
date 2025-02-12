@@ -3,20 +3,15 @@ from google.oauth2.service_account import Credentials
 import pandas as pd
 import requests
 import os
+import json
 
-# 🔹 Configuration Google Sheets
-SCOPES = ["https://www.googleapis.com/auth/spreadsheets.readonly"]
-SERVICE_ACCOUNT_FILE = "credentials.json"
+# 🔹 Récupération des credentials depuis la variable d'environnement
+credentials_json = os.getenv("GOOGLE_CREDENTIALS_JSON")
+if not credentials_json:
+    raise ValueError("Les credentials Google Cloud ne sont pas définis dans les variables d'environnement.")
 
-# Vérification de l'existence du fichier credentials.json
-script_dir = os.path.dirname(os.path.abspath(__file__))
-credentials_path = os.path.join(script_dir, SERVICE_ACCOUNT_FILE)
-
-if not os.path.exists(credentials_path):
-    raise FileNotFoundError(f"Le fichier {credentials_path} est introuvable. Assurez-vous qu'il est dans le même dossier que le script.")
-
-# Authentification Google
-creds = Credentials.from_service_account_file(credentials_path, scopes=SCOPES)
+creds_data = json.loads(credentials_json)
+creds = Credentials.from_service_account_info(creds_data)
 client = gspread.authorize(creds)
 
 # 🔹 Demande à l'utilisateur quel fichier importer
@@ -32,7 +27,10 @@ df = pd.DataFrame(data)
 
 # 🔹 Paramètres Odoo avec clé API
 ODOO_URL = "https://alex-mecanique.odoo.com"
-ODOO_API_KEY = input("f93c51b15f5ab9a1b7878d840f74fc5cc6a90c53")
+ODOO_API_KEY = os.getenv("ODOO_API_KEY")
+if not ODOO_API_KEY:
+    raise ValueError("La clé API Odoo n'est pas définie dans les variables d'environnement.")
+
 ODOO_HEADERS = {
     "Content-Type": "application/json",
     "Authorization": f"Bearer {ODOO_API_KEY}"
