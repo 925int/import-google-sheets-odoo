@@ -167,7 +167,8 @@ def process_csv(csv_file):
             continue
     
     print(f"🟢 Nombre d'articles à insérer dans PostgreSQL : {len(product_data_list)}")
-    insert_into_postgres(product_data_list)
+    unique_products = {p[1]: p for p in product_data_list}.values()
+    insert_into_postgres(list(unique_products))
     return "✅ Importation des produits terminée."
 
 if __name__ == '__main__':
