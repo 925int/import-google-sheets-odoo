@@ -3,6 +3,7 @@ import pandas as pd
 import psycopg2
 import csv
 import sys
+import xmlrpc.client
 from psycopg2.extras import execute_values
 from datetime import datetime
 
@@ -17,6 +18,17 @@ POSTGRES_HOST = "node172643-env-8840643.jcloud.ik-server.com"
 POSTGRES_DB = "alex_odoo"
 POSTGRES_USER = "Odoo"
 POSTGRES_PASSWORD = "C:2&#:4G9pAO823O@3iC"
+
+# 🔹 Connexion à Odoo
+ODOO_URL = "https://your-odoo-instance.com"
+ODOO_DB = "your_db_name"
+ODOO_USERNAME = "your_email@example.com"
+ODOO_PASSWORD = "your_password"
+
+# 🔹 Connexion API Odoo
+common = xmlrpc.client.ServerProxy(f'{ODOO_URL}/xmlrpc/2/common')
+ud = xmlrpc.client.ServerProxy(f'{ODOO_URL}/xmlrpc/2/object')
+uid = common.authenticate(ODOO_DB, ODOO_USERNAME, ODOO_PASSWORD, {})
 
 def get_db_connection():
     return psycopg2.connect(
@@ -83,56 +95,33 @@ def process_csv(csv_file):
     conn = get_db_connection()
     cursor = conn.cursor()
     
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS produits (
-            id SERIAL PRIMARY KEY,
-            fournisseur VARCHAR(255),
-            code_produit_fournisseur VARCHAR(255) UNIQUE,
-            id_externe VARCHAR(255),
-            herstellerartikelnummer VARCHAR(255),
-            nom VARCHAR(255),
-            prix_de_vente NUMERIC(10,2),
-            fournisseurs_prix NUMERIC(10,2),
-            standard_price NUMERIC(10,2),
-            brand VARCHAR(255),
-            code_barres VARCHAR(255),
-            date_mise_a_jour TIMESTAMP,
-            maj_odoo VARCHAR(10)
-        )
-    """)
-    conn.commit()
-    
     for _, row in df.iterrows():
-        cursor.execute("SELECT * FROM produits WHERE code_produit_fournisseur = %s", (row["Fournisseurs / Code du produit du fournisseur"],))
-        existing_product = cursor.fetchone()
-
+        product_data = {
+            'name': row.get("Nom", ""),
+            'list_price': float(row.get("Prix de vente", "0")),
+            'standard_price': float(row.get("Standard_Price", "0")),
+            'barcode': row.get("Code-barres", ""),
+            'default_code': row.get("Fournisseurs / Code du produit du fournisseur", ""),
+        }
+        
+        # Vérifier si le produit existe déjà dans Odoo
+        existing_product = ud.execute_kw(ODOO_DB, uid, ODOO_PASSWORD, 'product.template', 'search_read', [[['default_code', '=', product_data['default_code']]]], {'fields': ['id']})
+        
         if existing_product:
-            differences = [i for i, col in enumerate(df.columns) if str(existing_product[i]) != str(row[col])]
-            if differences:
-                cursor.execute("UPDATE produits SET date_mise_a_jour = %s, maj_odoo = 'Oui' WHERE code_produit_fournisseur = %s", (datetime.now(), row["Fournisseurs / Code du produit du fournisseur"]))
+            # Mise à jour du produit existant
+            product_id = existing_product[0]['id']
+            ud.execute_kw(ODOO_DB, uid, ODOO_PASSWORD, 'product.template', 'write', [[product_id], product_data])
+            print(f"🔄 Produit mis à jour : {product_data['name']}")
         else:
-            cursor.execute("""
-                INSERT INTO produits (fournisseur, code_produit_fournisseur, id_externe, herstellerartikelnummer, nom, 
-                                      prix_de_vente, fournisseurs_prix, standard_price, brand, code_barres, date_mise_a_jour, maj_odoo) 
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'Oui')
-            """, (
-                row.get("Fournisseurs / Fournisseur", ""),
-                row.get("Fournisseurs / Code du produit du fournisseur", ""),
-                row.get("Fournisseurs / ID externe", ""),
-                row.get("Herstellerartikelnummer", ""),
-                row.get("Nom", ""),
-                float(row.get("Prix de vente", "0")),
-                float(row.get("Fournisseurs / Prix", "0")),
-                float(row.get("Standard_Price", "0")),
-                row.get("Brand", ""),
-                row.get("Code-barres", ""),
-                datetime.now()
-            ))
+            # Création d'un nouveau produit
+            ud.execute_kw(ODOO_DB, uid, ODOO_PASSWORD, 'product.template', 'create', [product_data])
+            print(f"✅ Nouveau produit importé : {product_data['name']}")
+    
     conn.commit()
     cursor.close()
     conn.close()
     
-    return "✅ Mise à jour et insertion des produits terminée."
+    return "✅ Importation des produits dans Odoo terminée."
 
 if __name__ == '__main__':
     print("📂 Vérification des fichiers uploadés...")
