@@ -47,7 +47,14 @@ def get_db_connection():
     )
 
 def create_or_update_product(product_data):
-    # Vérifier si le produit existe déjà
+    # Vérifier si le code-barres existe déjà
+    if product_data['barcode']:
+        existing_barcode = odoo.execute_kw(ODOO_DB, uid, ODOO_API_KEY, 'product.template', 'search', [[['barcode', '=', product_data['barcode']]]])
+        if existing_barcode:
+            print(f"⚠️ Code-barres déjà existant. Importation du produit sans code-barres : {product_data['name']}")
+            product_data['barcode'] = ""  # Supprimer le code-barres avant l'importation
+    
+    # Vérifier si le produit existe déjà via default_code
     existing_product = odoo.execute_kw(ODOO_DB, uid, ODOO_API_KEY, 'product.template', 'search_read', [[['default_code', '=', product_data['default_code']]]], {'fields': ['id']})
     
     if existing_product:
