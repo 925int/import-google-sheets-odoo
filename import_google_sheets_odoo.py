@@ -39,11 +39,13 @@ def process_csv(csv_file):
         df.columns = df.columns.str.strip()  # Normaliser les noms de colonnes
 
         # Convertir les prix en float en remplaçant les virgules par des points
-        df["UVP exkl. MwSt."] = df["UVP exkl. MwSt."].str.replace(',', '.').astype(float)
-        df["Nettopreis exkl. MwSt."] = df["Nettopreis exkl. MwSt."].str.replace(',', '.').astype(float)
+        df["UVP exkl. MwSt."].fillna("0", inplace=True)
+        df["Nettopreis exkl. MwSt."].fillna("0", inplace=True)
+        df["UVP exkl. MwSt."] = df["UVP exkl. MwSt."].astype(str).str.replace(',', '.').astype(float)
+        df["Nettopreis exkl. MwSt."] = df["Nettopreis exkl. MwSt."].astype(str).str.replace(',', '.').astype(float)
 
         # Correction du format des codes EAN pour éviter la notation scientifique
-        df["EAN-Code"] = df["EAN-Code"].apply(lambda x: f"{int(float(x))}" if x.replace('.', '', 1).isdigit() else x)
+        df["EAN-Code"] = df["EAN-Code"].apply(lambda x: f"{int(float(x))}" if isinstance(x, str) and x.replace('.', '', 1).isdigit() else x)
     except Exception as e:
         return f"❌ Erreur lors du chargement du fichier CSV : {str(e)}"
     
