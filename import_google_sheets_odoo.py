@@ -72,6 +72,32 @@ def insert_into_postgres(product_data):
         cursor.close()
         conn.close()
 
+def create_products_in_odoo():
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT id_externe, default_code, product_name, list_price, standard_price FROM products")
+    products = cursor.fetchall()
+    cursor.close()
+    conn.close()
+    
+    for product in products:
+        product_data = {
+            'default_code': product[1],
+            'name': product[2],
+            'list_price': product[3],
+            'standard_price': product[4]
+        }
+        print(f"🟢 Tentative de création/mise à jour dans Odoo : {product_data}")
+        existing_product = odoo.execute_kw(ODOO_DB, uid, ODOO_API_KEY, 'product.template', 'search_read', [[['default_code', '=', product_data['default_code']]]], {'fields': ['id']})
+        
+        if existing_product:
+            product_id = existing_product[0]['id']
+            odoo.execute_kw(ODOO_DB, uid, ODOO_API_KEY, 'product.template', 'write', [[product_id], product_data])
+            print(f"🔄 Produit mis à jour : {product_data['name']}")
+        else:
+            odoo.execute_kw(ODOO_DB, uid, ODOO_API_KEY, 'product.template', 'create', [product_data])
+            print(f"✅ Nouveau produit importé : {product_data['name']}")
+
 def process_uploaded_file():
     csv_file = os.path.join(UPLOAD_FOLDER, "Derendinger - PF-9208336.csv")
     if not os.path.exists(csv_file):
@@ -121,3 +147,5 @@ def process_csv(csv_file):
 if __name__ == '__main__':
     print("📂 Vérification des fichiers uploadés...")
     print(process_uploaded_file())
+    print("📂 Création des produits dans Odoo...")
+    create_products_in_odoo()
