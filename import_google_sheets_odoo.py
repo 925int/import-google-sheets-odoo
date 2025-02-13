@@ -65,11 +65,18 @@ def process_csv(csv_file):
         df["date_mise_a_jour"] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         df["maj_odoo"] = "Non"
         
-        # Renommer "Kunden-Nr" en "Fournisseurs / Fournisseur" et "Artikel-Nr." en "Fournisseurs / Code du produit du fournisseur"
+        # Renommer les colonnes
         df.rename(columns={
             "Kunden-Nr": "Fournisseurs / Fournisseur",
-            "Artikel-Nr.": "Fournisseurs / Code du produit du fournisseur"
+            "Artikel-Nr.": "Fournisseurs / Code du produit du fournisseur",
+            "Artikelbezeichnung in FR": "Nom",
+            "UVP exkl. MwSt.": "Prix de vente",
+            "Nettopreis exkl. MwSt.": "Fournisseurs / Prix",
+            "EAN-Code": "Code-barres"
         }, inplace=True)
+        
+        # Dupliquer "Fournisseurs / Prix" sous "Standard_Price"
+        df["Standard_Price"] = df["Fournisseurs / Prix"]
     except Exception as e:
         return f"❌ Erreur lors du chargement du fichier CSV : {str(e)}"
     
@@ -83,11 +90,12 @@ def process_csv(csv_file):
             code_produit_fournisseur VARCHAR(255) UNIQUE,
             id_externe VARCHAR(255),
             herstellerartikelnummer VARCHAR(255),
-            artikelbezeichnung_fr VARCHAR(255),
-            uvp_exkl_mwst NUMERIC(10,2),
-            nettopreis_exkl_mwst NUMERIC(10,2),
+            nom VARCHAR(255),
+            prix_de_vente NUMERIC(10,2),
+            fournisseurs_prix NUMERIC(10,2),
+            standard_price NUMERIC(10,2),
             brand VARCHAR(255),
-            ean_code VARCHAR(255),
+            code_barres VARCHAR(255),
             date_mise_a_jour TIMESTAMP,
             maj_odoo VARCHAR(10)
         )
@@ -104,19 +112,20 @@ def process_csv(csv_file):
                 cursor.execute("UPDATE produits SET date_mise_a_jour = %s, maj_odoo = 'Oui' WHERE code_produit_fournisseur = %s", (datetime.now(), row["Fournisseurs / Code du produit du fournisseur"]))
         else:
             cursor.execute("""
-                INSERT INTO produits (fournisseur, code_produit_fournisseur, id_externe, herstellerartikelnummer, artikelbezeichnung_fr, 
-                                      uvp_exkl_mwst, nettopreis_exkl_mwst, brand, ean_code, date_mise_a_jour, maj_odoo) 
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'Oui')
+                INSERT INTO produits (fournisseur, code_produit_fournisseur, id_externe, herstellerartikelnummer, nom, 
+                                      prix_de_vente, fournisseurs_prix, standard_price, brand, code_barres, date_mise_a_jour, maj_odoo) 
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'Oui')
             """, (
                 row.get("Fournisseurs / Fournisseur", ""),
                 row.get("Fournisseurs / Code du produit du fournisseur", ""),
                 row.get("Fournisseurs / ID externe", ""),
                 row.get("Herstellerartikelnummer", ""),
-                row.get("Artikelbezeichnung in FR", ""),
-                float(row.get("UVP exkl. MwSt.", "0")),
-                float(row.get("Nettopreis exkl. MwSt.", "0")),
+                row.get("Nom", ""),
+                float(row.get("Prix de vente", "0")),
+                float(row.get("Fournisseurs / Prix", "0")),
+                float(row.get("Standard_Price", "0")),
                 row.get("Brand", ""),
-                row.get("EAN-Code", ""),
+                row.get("Code-barres", ""),
                 datetime.now()
             ))
     conn.commit()
