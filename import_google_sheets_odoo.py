@@ -50,9 +50,20 @@ def create_tables():
     conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute('''
+        CREATE TABLE IF NOT EXISTS products (
+            id SERIAL PRIMARY KEY,
+            product_name TEXT,
+            default_code TEXT UNIQUE,
+            list_price FLOAT,
+            standard_price FLOAT,
+            barcode TEXT,
+            last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+    cursor.execute('''
         CREATE TABLE IF NOT EXISTS product_import (
             id SERIAL PRIMARY KEY,
-            name TEXT,
+            product_name TEXT,
             default_code TEXT UNIQUE,
             list_price FLOAT,
             standard_price FLOAT,
@@ -68,7 +79,7 @@ def insert_into_postgres(product_data):
     conn = get_db_connection()
     cursor = conn.cursor()
     execute_values(cursor, '''
-        INSERT INTO product_import (name, default_code, list_price, standard_price, barcode, last_updated)
+        INSERT INTO products (product_name, default_code, list_price, standard_price, barcode, last_updated)
         VALUES %s
         ON CONFLICT (default_code) DO UPDATE 
         SET list_price = EXCLUDED.list_price,
