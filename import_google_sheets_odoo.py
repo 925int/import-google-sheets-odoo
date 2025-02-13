@@ -47,12 +47,29 @@ def get_supplier_id():
         return odoo.execute_kw(ODOO_DB, uid, ODOO_API_KEY, 'res.partner', 'create', [{'name': supplier_name, 'supplier_rank': 1}])
 
 def get_db_connection():
-    return psycopg2.connect(
+    conn = psycopg2.connect(
         host=POSTGRES_HOST,
         database=POSTGRES_DB,
         user=POSTGRES_USER,
         password=POSTGRES_PASSWORD
     )
+    return conn
+
+def create_table():
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS product_import (
+            id SERIAL PRIMARY KEY,
+            product_code VARCHAR(255) UNIQUE,
+            supplier_id INT,
+            price FLOAT,
+            last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+    conn.commit()
+    cursor.close()
+    conn.close()
 
 def create_or_update_product(product_data, supplier_data):
     # Vérifier si le code-barres existe déjà
@@ -120,4 +137,5 @@ def process_csv(csv_file):
 
 if __name__ == '__main__':
     print("📂 Vérification des fichiers uploadés...")
+    create_table()
     print(process_uploaded_file())
