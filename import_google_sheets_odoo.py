@@ -38,6 +38,13 @@ if not uid:
 
 odoo = xmlrpc.client.ServerProxy(f'{ODOO_URL}/xmlrpc/2/object')
 
+def get_supplier_id(supplier_name):
+    supplier = odoo.execute_kw(ODOO_DB, uid, ODOO_API_KEY, 'res.partner', 'search_read', [[['name', '=', supplier_name]]], {'fields': ['id']})
+    if supplier:
+        return supplier[0]['id']
+    else:
+        return odoo.execute_kw(ODOO_DB, uid, ODOO_API_KEY, 'res.partner', 'create', [{'name': supplier_name, 'supplier_rank': 1}])
+
 def get_db_connection():
     return psycopg2.connect(
         host=POSTGRES_HOST,
@@ -70,9 +77,10 @@ def create_or_update_product(product_data, supplier_data):
         print(f"✅ Nouveau produit importé : {product_data['name']}")
     
     # Ajouter le fournisseur
+    supplier_data['partner_id'] = get_supplier_id(supplier_data['partner_id'])
     supplier_data['product_tmpl_id'] = product_id
     odoo.execute_kw(ODOO_DB, uid, ODOO_API_KEY, 'product.supplierinfo', 'create', [supplier_data])
-    print(f"✅ Fournisseur ajouté : {supplier_data['name']}")
+    print(f"✅ Fournisseur ajouté : {supplier_data['partner_id']}")
 
 def process_uploaded_file():
     csv_file = os.path.join(UPLOAD_FOLDER, "Derendinger - PF-9208336.csv")
@@ -113,14 +121,14 @@ def process_csv(csv_file):
     
     for _, row in df.iterrows():
         product_data = {
-            'partner_id': row.get("Nom", ""),
+            'name': row.get("Nom", ""),
             'list_price': float(row.get("Prix de vente", "0")),
             'standard_price': float(row.get("Fournisseurs / Prix", "0")),
             'barcode': row.get("Code-barres", ""),
             'default_code': row.get("Fournisseurs / Code du produit du fournisseur", ""),
         }
         supplier_data = {
-            'partner_id': get_supplier_id(row.get("Fournisseurs / Fournisseur", "")),
+            'partner_id': row.get("Fournisseurs / Fournisseur", ""),
             'product_code': row.get("Fournisseurs / ID externe", ""),
             'price': float(row.get("Fournisseurs / Prix", "0")),
             'delay': 1,
