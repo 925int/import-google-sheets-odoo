@@ -38,22 +38,7 @@ if not uid:
 
 odoo = xmlrpc.client.ServerProxy(f'{ODOO_URL}/xmlrpc/2/object')
 
-def get_db_connection():
-    return psycopg2.connect(
-        host=POSTGRES_HOST,
-        database=POSTGRES_DB,
-        user=POSTGRES_USER,
-        password=POSTGRES_PASSWORD
-    )
-
-def create_or_update_product(product_data):
-    # Vérifier si le code-barres existe déjà
-    if product_data['barcode']:
-        existing_barcode = odoo.execute_kw(ODOO_DB, uid, ODOO_API_KEY, 'product.template', 'search', [[['barcode', '=', product_data['barcode']]]])
-        if existing_barcode:
-            print(f"⚠️ Code-barres déjà existant. Importation du produit sans code-barres : {product_data['name']}")
-            product_data['barcode'] = ""  # Supprimer le code-barres avant l'importation
-    
+def create_or_update_product(product_data, supplier_data):
     # Vérifier si le produit existe déjà via default_code
     existing_product = odoo.execute_kw(ODOO_DB, uid, ODOO_API_KEY, 'product.template', 'search_read', [[['default_code', '=', product_data['default_code']]]], {'fields': ['id']})
     
@@ -62,8 +47,13 @@ def create_or_update_product(product_data):
         odoo.execute_kw(ODOO_DB, uid, ODOO_API_KEY, 'product.template', 'write', [[product_id], product_data])
         print(f"🔄 Produit mis à jour : {product_data['name']}")
     else:
-        odoo.execute_kw(ODOO_DB, uid, ODOO_API_KEY, 'product.template', 'create', [product_data])
+        product_id = odoo.execute_kw(ODOO_DB, uid, ODOO_API_KEY, 'product.template', 'create', [product_data])
         print(f"✅ Nouveau produit importé : {product_data['name']}")
+    
+    # Ajouter les informations d'achat
+    supplier_data['product_tmpl_id'] = product_id
+    odoo.execute_kw(ODOO_DB, uid, ODOO_API_KEY, 'product.supplierinfo', 'create', [supplier_data])
+    print(f"✅ Fournisseur ajouté pour {product_data['name']}")
 
 def process_uploaded_file():
     csv_file = os.path.join(UPLOAD_FOLDER, "Derendinger - PF-9208336.csv")
@@ -77,45 +67,6 @@ def process_csv(csv_file):
         df_iterator = pd.read_csv(csv_file, delimiter=',', encoding='utf-8', quoting=csv.QUOTE_MINIMAL, on_bad_lines='skip', dtype=str, chunksize=10000)
         df = pd.concat(df_iterator, ignore_index=True)
         df.columns = df.columns.str.strip()
-
-        # Supprimer les lignes où "Artikelbezeichnung in FR" est vide
-        df = df[df["Artikelbezeichnung in FR"].notna() & df["Artikelbezeichnung in FR"].str.strip().ne("")]
-
-        # Vérification du nombre de lignes chargées
-        print(f"🔍 Nombre de lignes chargées dans df: {len(df)}")
-
-        # Convertir les prix en float en remplaçant les virgules par des points
-        df["UVP exkl. MwSt."] = df["UVP exkl. MwSt."].astype(str).str.replace(',', '.').astype(float)
-        df["Nettopreis exkl. MwSt."] = df["Nettopreis exkl. MwSt."].astype(str).str.replace(',', '.').astype(float)
-
-        # Correction du format des codes EAN pour éviter la notation scientifique
-        df["EAN-Code"] = df["EAN-Code"].apply(lambda x: f"{int(float(x))}" if isinstance(x, str) and x.replace('.', '', 1).isdigit() else x)
-
-        # Nettoyage des espaces dans "Artikel-Nr."
-        df["Artikel-Nr."] = df["Artikel-Nr."].str.replace(" ", "")
-
-        # Création de la colonne "Fournisseurs / ID externe" avec préfixe "drd."
-        df["Fournisseurs / ID externe"] = "drd." + df["Artikel-Nr."]
-
-        # Remplacement des valeurs "9208336" par "Derendinger AG" dans "Kunden-Nr"
-        df["Kunden-Nr"] = df["Kunden-Nr"].replace("9208336", "Derendinger AG")
-        
-        # Ajout de la colonne de mise à jour
-        df["date_mise_a_jour"] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-        df["maj_odoo"] = "Non"
-        
-        # Renommer les colonnes
-        df.rename(columns={
-            "Kunden-Nr": "Fournisseurs / Fournisseur",
-            "Artikel-Nr.": "Fournisseurs / Code du produit du fournisseur",
-            "Artikelbezeichnung in FR": "Nom",
-            "UVP exkl. MwSt.": "Prix de vente",
-            "Nettopreis exkl. MwSt.": "Fournisseurs / Prix",
-            "EAN-Code": "Code-barres"
-        }, inplace=True)
-        
-        # Dupliquer "Fournisseurs / Prix" sous "Standard_Price"
-        df["Standard_Price"] = df["Fournisseurs / Prix"]
     except Exception as e:
         return f"❌ Erreur lors du chargement du fichier CSV : {str(e)}"
     
@@ -125,13 +76,20 @@ def process_csv(csv_file):
         product_data = {
             'name': row.get("Nom", ""),
             'list_price': float(row.get("Prix de vente", "0")),
-            'standard_price': float(row.get("Standard_Price", "0")),
+            'standard_price': float(row.get("Fournisseurs / Prix", "0")),
             'barcode': row.get("Code-barres", ""),
             'default_code': row.get("Fournisseurs / Code du produit du fournisseur", ""),
         }
-        create_or_update_product(product_data)
+        supplier_data = {
+            'partner_id': odoo.execute_kw(ODOO_DB, uid, ODOO_API_KEY, 'res.partner', 'search', [[['name', '=', 'Derendinger AG']]])[0],
+            'product_name': row.get("Nom", ""),
+            'product_code': row.get("Fournisseurs / Code du produit du fournisseur", ""),
+            'price': float(row.get("Fournisseurs / Prix", "0")),
+            'delay': 1,
+        }
+        create_or_update_product(product_data, supplier_data)
     
-    return "✅ Importation des produits dans Odoo terminée."
+    return "✅ Importation des produits et fournisseurs dans Odoo terminée."
 
 if __name__ == '__main__':
     print("📂 Vérification des fichiers uploadés...")
