@@ -102,6 +102,7 @@ def create_products_from_postgres():
             'list_price': product[3],
             'standard_price': product[4]
         }
+        print(f"🟢 Tentative de création/mise à jour dans Odoo : {product_data}")
         existing_product = odoo.execute_kw(ODOO_DB, uid, ODOO_API_KEY, 'product.template', 'search_read', [[['default_code', '=', product_data['default_code']]]], {'fields': ['id']})
         
         if existing_product:
@@ -123,6 +124,7 @@ def process_csv(csv_file):
         print("📥 Chargement du fichier CSV...")
         df = pd.read_csv(csv_file, delimiter=',', encoding='utf-8', quoting=csv.QUOTE_MINIMAL, on_bad_lines='skip', dtype=str)
         df.columns = df.columns.str.strip()
+        print(df.head(5))  # Vérifie si les données sont bien lues
     except Exception as e:
         return f"❌ Erreur lors du chargement du fichier CSV : {str(e)}"
     
@@ -144,6 +146,7 @@ def process_csv(csv_file):
             print(f"⚠️ Erreur de conversion sur une ligne ignorée : {e}")
             continue
     
+    print(f"🟢 Nombre d'articles à insérer dans PostgreSQL : {len(product_data_list)}")
     insert_into_postgres(product_data_list)
     return "✅ Importation des produits terminée."
 
