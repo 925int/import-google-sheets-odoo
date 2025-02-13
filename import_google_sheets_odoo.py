@@ -113,7 +113,7 @@ def process_csv(csv_file):
     
     for _, row in df.iterrows():
         product_data = {
-            'name': row.get("Nom", ""),
+            'partner_id': row.get("Nom", ""),
             'list_price': float(row.get("Prix de vente", "0")),
             'standard_price': float(row.get("Fournisseurs / Prix", "0")),
             'barcode': row.get("Code-barres", ""),
