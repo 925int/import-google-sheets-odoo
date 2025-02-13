@@ -39,8 +39,6 @@ def process_csv(csv_file):
         df.columns = df.columns.str.strip()  # Normaliser les noms de colonnes
 
         # Convertir les prix en float en remplaçant les virgules par des points
-        df["UVP exkl. MwSt."].fillna("0", inplace=True)
-        df["Nettopreis exkl. MwSt."].fillna("0", inplace=True)
         df["UVP exkl. MwSt."] = df["UVP exkl. MwSt."].astype(str).str.replace(',', '.').astype(float)
         df["Nettopreis exkl. MwSt."] = df["Nettopreis exkl. MwSt."].astype(str).str.replace(',', '.').astype(float)
 
@@ -91,8 +89,8 @@ def process_csv(csv_file):
             row.get("Artikel-Nr.", ""),
             row.get("Herstellerartikelnummer", ""),
             row.get("Artikelbezeichnung in FR", ""),
-            float(row.get("UVP exkl. MwSt.", 0)),
-            float(row.get("Nettopreis exkl. MwSt.", 0)),
+            float(row.get("UVP exkl. MwSt.", 0) or 0),
+            float(row.get("Nettopreis exkl. MwSt.", 0) or 0),
             row.get("Brand", ""),
             row.get("EAN-Code", "")
         )
