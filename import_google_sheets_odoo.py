@@ -64,7 +64,7 @@ def create_table():
     conn.commit()
     cursor.close()
     conn.close()
-    print("✅ Table 'products' vérifiée et créée si nécessaire.")
+    print("✅ Table 'products' vérifiée et mise à jour si nécessaire.")
 
 def insert_into_postgres(product_data):
     if not product_data:
