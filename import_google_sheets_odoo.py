@@ -13,12 +13,6 @@ csv.field_size_limit(sys.maxsize)
 # 🔹 Chemin du dossier où le fichier est uploadé
 UPLOAD_FOLDER = '/var/www/webroot/ROOT/uploads/'
 
-# 🔹 Connexion à PostgreSQL
-POSTGRES_HOST = "node172643-env-8840643.jcloud.ik-server.com"
-POSTGRES_DB = "alex_odoo"
-POSTGRES_USER = "Odoo"
-POSTGRES_PASSWORD = "C:2&#:4G9pAO823O@3iC"
-
 # 🔹 Connexion à Odoo avec JSON-RPC et clé API
 ODOO_URL = "https://alex-mecanique.odoo.com/"
 ODOO_DB = "alex-mecanique"
@@ -46,7 +40,7 @@ def get_supplier_id():
     else:
         return odoo.execute_kw(ODOO_DB, uid, ODOO_API_KEY, 'res.partner', 'create', [{'name': supplier_name, 'supplier_rank': 1}])
 
-def create_or_update_product(product_data, supplier_data):
+def create_or_update_product(product_data):
     existing_product = odoo.execute_kw(ODOO_DB, uid, ODOO_API_KEY, 'product.template', 'search_read', [[['default_code', '=', product_data['default_code']]]], {'fields': ['id']})
     
     if existing_product:
@@ -56,11 +50,15 @@ def create_or_update_product(product_data, supplier_data):
     else:
         product_id = odoo.execute_kw(ODOO_DB, uid, ODOO_API_KEY, 'product.template', 'create', [product_data])
         print(f"✅ Nouveau produit importé : {product_data['name']}")
+    return product_id
+
+def add_supplier_info(product_id, supplier_data):
+    supplier_info_exists = odoo.execute_kw(ODOO_DB, uid, ODOO_API_KEY, 'product.supplierinfo', 'search', [[['product_tmpl_id', '=', product_id], ['partner_id', '=', supplier_data['partner_id']]]])
     
-    supplier_data['product_tmpl_id'] = product_id
-    supplier_data['partner_id'] = get_supplier_id()
-    odoo.execute_kw(ODOO_DB, uid, ODOO_API_KEY, 'product.supplierinfo', 'create', [supplier_data])
-    print(f"✅ Fournisseur ajouté pour {product_data['name']}")
+    if not supplier_info_exists:
+        supplier_data['product_tmpl_id'] = product_id
+        odoo.execute_kw(ODOO_DB, uid, ODOO_API_KEY, 'product.supplierinfo', 'create', [supplier_data])
+        print(f"✅ Fournisseur ajouté pour {supplier_data['product_name']}")
 
 def process_uploaded_file():
     csv_file = os.path.join(UPLOAD_FOLDER, "Derendinger - PF-9208336.csv")
@@ -86,15 +84,16 @@ def process_csv(csv_file):
             'barcode': row.get("Code-barres", ""),
             'default_code': row.get("Fournisseurs / Code du produit du fournisseur", ""),
         }
+        product_id = create_or_update_product(product_data)
+        
         supplier_data = {
-            'product_tmpl_id': None,  # Sera mis à jour après la création du produit
             'partner_id': get_supplier_id(),
             'product_name': row.get("Nom", ""),
             'product_code': row.get("Fournisseurs / Code du produit du fournisseur", ""),
             'price': float(row.get("Fournisseurs / Prix", "0")),
             'delay': 1,
         }
-        create_or_update_product(product_data, supplier_data)
+        add_supplier_info(product_id, supplier_data)
     
     return "✅ Importation des produits et fournisseurs dans Odoo terminée."
 
