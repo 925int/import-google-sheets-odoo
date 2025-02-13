@@ -23,16 +23,17 @@ POSTGRES_PASSWORD = "C:2&#:4G9pAO823O@3iC"
 ODOO_URL = "https://alex-mecanique.odoo.com/"
 ODOO_DB = "alex-mecanique"
 ODOO_API_KEY = os.getenv("ODOO_API_KEY")  # Utilisation de la variable d'environnement
+ODOO_USERNAME = "ton_email_chez_odoo"  # Remplace avec ton email Odoo
 
 if not ODOO_API_KEY:
     print("❌ Clé API Odoo non définie. Vérifie ta variable d'environnement ODOO_API_KEY.")
     sys.exit(1)
 
 common = xmlrpc.client.ServerProxy(f'{ODOO_URL}/xmlrpc/2/common')
-uid = common.authenticate(ODOO_DB, ODOO_API_KEY, ODOO_API_KEY, {})
+uid = common.authenticate(ODOO_DB, ODOO_USERNAME, ODOO_API_KEY, {})
 
 if not uid:
-    print("❌ Erreur d'authentification à Odoo. Vérifie ta clé API.")
+    print("❌ Erreur d'authentification à Odoo. Vérifie ton email et ta clé API.")
     sys.exit(1)
 
 odoo = xmlrpc.client.ServerProxy(f'{ODOO_URL}/xmlrpc/2/object')
