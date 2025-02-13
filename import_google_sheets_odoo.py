@@ -128,7 +128,7 @@ def process_csv(csv_file):
             'default_code': row.get("Fournisseurs / Code du produit du fournisseur", ""),
         }
         supplier_data = {
-            'partner_id': row.get("Fournisseurs / Fournisseur", ""),
+            'partner_id': get_supplier_id("Derendinger AG"),
             'product_code': row.get("Fournisseurs / ID externe", ""),
             'price': float(row.get("Fournisseurs / Prix", "0")),
             'delay': 1,
