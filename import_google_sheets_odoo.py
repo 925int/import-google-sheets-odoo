@@ -64,7 +64,7 @@ def create_table():
             product_name TEXT,
             list_price FLOAT,
             standard_price FLOAT,
-            product_tag_id INTEGER,
+            product_tag INTEGER,
             last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     ''')
