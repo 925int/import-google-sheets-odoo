@@ -55,11 +55,12 @@ def insert_into_postgres(product_data):
     cursor = conn.cursor()
     try:
         execute_values(cursor, '''
-            INSERT INTO products (id_externe, default_code, product_name, list_price, standard_price, last_updated)
+            INSERT INTO products (id_externe, default_code, product_name, list_price, standard_price, product_tag, last_updated)
             VALUES %s
             ON CONFLICT (default_code) DO UPDATE 
             SET list_price = EXCLUDED.list_price,
                 standard_price = EXCLUDED.standard_price,
+                product_tag = EXCLUDED.product_tag,
                 last_updated = NOW()
         ''', product_data)
         conn.commit()
@@ -75,7 +76,7 @@ def insert_into_postgres(product_data):
 def create_products_in_odoo():
     conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute("SELECT id_externe, default_code, product_name, list_price, standard_price FROM products")
+    cursor.execute("SELECT id_externe, default_code, product_name, list_price, standard_price, product_tag FROM products")
     products = cursor.fetchall()
     cursor.close()
     conn.close()
@@ -85,7 +86,8 @@ def create_products_in_odoo():
             'default_code': product[1],
             'name': product[2],
             'list_price': product[3],
-            'standard_price': product[4]
+            'standard_price': product[4],
+            'product_tag_ids': [(6, 0, [product[5]])]  # Ajout de l'étiquette "Derendinger"
         }
         print(f"🟢 Tentative de création/mise à jour dans Odoo : {product_data}")
         existing_product = odoo.execute_kw(ODOO_DB, uid, ODOO_API_KEY, 'product.template', 'search_read', [[['default_code', '=', product_data['default_code']]]], {'fields': ['id']})
@@ -133,6 +135,7 @@ def process_csv(csv_file):
                 row.get("Artikelbezeichnung in FR", ""),
                 float(row.get("UVP exkl. MwSt.", "0") or 0),
                 float(row.get("Nettopreis exkl. MwSt.", "0") or 0),
+                "Derendinger",  # Ajout de l'étiquette produit
                 datetime.now()
             )
             product_data_list.append(product_data)
