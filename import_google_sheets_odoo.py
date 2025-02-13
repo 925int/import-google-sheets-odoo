@@ -38,18 +38,39 @@ def process_csv(csv_file):
         df = pd.concat(df_iterator, ignore_index=True)
         df.columns = df.columns.str.strip()  # Normaliser les noms de colonnes
 
+        # Supprimer les lignes où "Artikelbezeichnung in FR" est vide
+        df = df[df["Artikelbezeichnung in FR"].notna() & df["Artikelbezeichnung in FR"].str.strip().ne("")]
+
+        # Vérification du nombre de lignes chargées
+        print(f"🔍 Nombre de lignes chargées dans df: {len(df)}")
+
         # Convertir les prix en float en remplaçant les virgules par des points
         df["UVP exkl. MwSt."] = df["UVP exkl. MwSt."].astype(str).str.replace(',', '.').astype(float)
         df["Nettopreis exkl. MwSt."] = df["Nettopreis exkl. MwSt."].astype(str).str.replace(',', '.').astype(float)
 
         # Correction du format des codes EAN pour éviter la notation scientifique
         df["EAN-Code"] = df["EAN-Code"].apply(lambda x: f"{int(float(x))}" if isinstance(x, str) and x.replace('.', '', 1).isdigit() else x)
+
+        # Nettoyage des espaces dans "Artikel-Nr."
+        df["Artikel-Nr."] = df["Artikel-Nr."].str.replace(" ", "")
+
+        # Création de la colonne "Fournisseurs / ID externe" avec préfixe "drd."
+        df["Fournisseurs / ID externe"] = "drd." + df["Artikel-Nr."]
+
+        # Remplacement des valeurs "9208336" par "Derendinger AG" dans "Kunden-Nr"
+        df["Kunden-Nr"] = df["Kunden-Nr"].replace("9208336", "Derendinger AG")
+        
+        # Renommer "Kunden-Nr" en "Fournisseurs / Fournisseur" et "Artikel-Nr." en "Fournisseurs / Code du produit du fournisseur"
+        df.rename(columns={
+            "Kunden-Nr": "Fournisseurs / Fournisseur",
+            "Artikel-Nr.": "Fournisseurs / Code du produit du fournisseur"
+        }, inplace=True)
     except Exception as e:
         return f"❌ Erreur lors du chargement du fichier CSV : {str(e)}"
     
     expected_columns = [
-        "Kunden-Nr", "Artikel-Nr.", "Herstellerartikelnummer", "Artikelbezeichnung in FR",
-        "UVP exkl. MwSt.", "Nettopreis exkl. MwSt.", "Brand", "EAN-Code"
+        "Fournisseurs / Fournisseur", "Fournisseurs / Code du produit du fournisseur", "Herstellerartikelnummer", "Artikelbezeichnung in FR",
+        "UVP exkl. MwSt.", "Nettopreis exkl. MwSt.", "Brand", "EAN-Code", "Fournisseurs / ID externe"
     ]
     found_columns = df.columns.tolist()
     
@@ -66,8 +87,9 @@ def process_csv(csv_file):
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS produits (
             id SERIAL PRIMARY KEY,
-            kunden_nr VARCHAR(255),
-            artikel_nr VARCHAR(255),
+            fournisseur VARCHAR(255),
+            code_produit_fournisseur VARCHAR(255),
+            id_externe VARCHAR(255),
             herstellerartikelnummer VARCHAR(255),
             artikelbezeichnung_fr VARCHAR(255),
             uvp_exkl_mwst NUMERIC(10,2),
@@ -78,24 +100,28 @@ def process_csv(csv_file):
     """)
     conn.commit()
     
-    insert_query = """
-        INSERT INTO produits (kunden_nr, artikel_nr, herstellerartikelnummer, artikelbezeichnung_fr, 
-                              uvp_exkl_mwst, nettopreis_exkl_mwst, brand, ean_code) 
-        VALUES %s
-    """
     data_to_insert = [
         (
-            row.get("Kunden-Nr", ""),
-            row.get("Artikel-Nr.", ""),
-            row.get("Herstellerartikelnummer", ""),
-            row.get("Artikelbezeichnung in FR", ""),
-            float(row.get("UVP exkl. MwSt.", 0) or 0),
-            float(row.get("Nettopreis exkl. MwSt.", 0) or 0),
-            row.get("Brand", ""),
-            row.get("EAN-Code", "")
+            row.get("Fournisseurs / Fournisseur", "") or "",
+            row.get("Fournisseurs / Code du produit du fournisseur", "") or "",
+            row.get("Fournisseurs / ID externe", "") or "",
+            row.get("Herstellerartikelnummer", "") or "",
+            row.get("Artikelbezeichnung in FR", "") or "",
+            float(row.get("UVP exkl. MwSt.", "0")) if row.get("UVP exkl. MwSt.") else 0,
+            float(row.get("Nettopreis exkl. MwSt.", "0")) if row.get("Nettopreis exkl. MwSt.") else 0,
+            row.get("Brand", "") or "",
+            row.get("EAN-Code", "") or ""
         )
         for _, row in df.iterrows()
     ]
+    
+    print(f"🔍 Exemple de données à insérer: {data_to_insert[:5]}")
+    
+    insert_query = """
+        INSERT INTO produits (fournisseur, code_produit_fournisseur, id_externe, herstellerartikelnummer, artikelbezeichnung_fr, 
+                              uvp_exkl_mwst, nettopreis_exkl_mwst, brand, ean_code) 
+        VALUES %s
+    """
     execute_values(cursor, insert_query, data_to_insert)
     conn.commit()
     
