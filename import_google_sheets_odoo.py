@@ -46,6 +46,26 @@ def get_db_connection():
         password=POSTGRES_PASSWORD
     )
 
+def create_table():
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS products (
+            id SERIAL PRIMARY KEY,
+            id_externe TEXT UNIQUE,
+            default_code TEXT UNIQUE,
+            product_name TEXT,
+            list_price FLOAT,
+            standard_price FLOAT,
+            product_tag TEXT,
+            last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+    conn.commit()
+    cursor.close()
+    conn.close()
+    print("✅ Table 'products' vérifiée et créée si nécessaire.")
+
 def insert_into_postgres(product_data):
     if not product_data:
         print("⚠️ Aucune donnée à insérer dans PostgreSQL.")
@@ -148,6 +168,8 @@ def process_csv(csv_file):
     return "✅ Importation des produits terminée."
 
 if __name__ == '__main__':
+    print("📂 Vérification et création de la table si nécessaire...")
+    create_table()
     print("📂 Vérification des fichiers uploadés...")
     print(process_uploaded_file())
     print("📂 Création des produits dans Odoo...")
