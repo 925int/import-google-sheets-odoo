@@ -25,15 +25,6 @@ def get_db_connection():
         password=POSTGRES_PASSWORD
     )
 
-def detect_delimiter(csv_file):
-    with open(csv_file, 'r', encoding="ISO-8859-1") as f:
-        first_line = f.readline()
-        try:
-            dialect = csv.Sniffer().sniff(first_line)
-        except csv.Error:
-            dialect = csv.get_dialect('excel')  # Fallback si Sniffer échoue
-        return dialect.delimiter
-
 def process_uploaded_file():
     csv_file = os.path.join(UPLOAD_FOLDER, "Derendinger - PF-9208336.csv")
     if not os.path.exists(csv_file):
@@ -42,14 +33,17 @@ def process_uploaded_file():
 
 def process_csv(csv_file):
     try:
-        print("📥 Détection du séparateur...")
-        delimiter = detect_delimiter(csv_file)
-        print(f"✅ Délimiteur détecté : '{delimiter}'")
-        
-        print("📥 Chargement du fichier CSV en mode chunk...")
-        df_iterator = pd.read_csv(csv_file, delimiter=delimiter, encoding='ISO-8859-1', quoting=csv.QUOTE_MINIMAL, on_bad_lines='skip', chunksize=10000)
+        print("📥 Chargement du fichier CSV avec correction d'encodage et séparateur...")
+        df_iterator = pd.read_csv(csv_file, delimiter=',', encoding='utf-8', quoting=csv.QUOTE_MINIMAL, on_bad_lines='skip', dtype=str, chunksize=10000)
         df = pd.concat(df_iterator, ignore_index=True)
         df.columns = df.columns.str.strip()  # Normaliser les noms de colonnes
+
+        # Convertir les prix en float en remplaçant les virgules par des points
+        df["UVP exkl. MwSt."] = df["UVP exkl. MwSt."].str.replace(',', '.').astype(float)
+        df["Nettopreis exkl. MwSt."] = df["Nettopreis exkl. MwSt."].str.replace(',', '.').astype(float)
+
+        # Correction du format des codes EAN pour éviter la notation scientifique
+        df["EAN-Code"] = df["EAN-Code"].apply(lambda x: f"{int(float(x))}" if x.replace('.', '', 1).isdigit() else x)
     except Exception as e:
         return f"❌ Erreur lors du chargement du fichier CSV : {str(e)}"
     
