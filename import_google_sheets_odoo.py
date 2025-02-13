@@ -1,6 +1,7 @@
 import os
 import pandas as pd
 import psycopg2
+import csv
 from psycopg2.extras import execute_values
 
 # 🔹 Chemin du dossier où le fichier est uploadé
@@ -20,6 +21,12 @@ def get_db_connection():
         password=POSTGRES_PASSWORD
     )
 
+def detect_delimiter(csv_file):
+    with open(csv_file, 'r', encoding="ISO-8859-1") as f:
+        first_line = f.readline()
+        dialect = csv.Sniffer().sniff(first_line)
+        return dialect.delimiter
+
 def process_uploaded_file():
     csv_file = os.path.join(UPLOAD_FOLDER, "Derendinger - PF-9208336.csv")
     if not os.path.exists(csv_file):
@@ -28,8 +35,12 @@ def process_uploaded_file():
 
 def process_csv(csv_file):
     try:
+        print("📥 Détection du séparateur...")
+        delimiter = detect_delimiter(csv_file)
+        print(f"✅ Délimiteur détecté : '{delimiter}'")
+        
         print("📥 Chargement du fichier CSV...")
-        df = pd.read_csv(csv_file, delimiter=',', encoding='ISO-8859-1')  # Délimiteur virgule avec encodage ISO-8859-1
+        df = pd.read_csv(csv_file, delimiter=delimiter, encoding='ISO-8859-1', quoting=csv.QUOTE_MINIMAL, on_bad_lines='skip')
         df.columns = df.columns.str.strip()  # Normaliser les noms de colonnes
     except Exception as e:
         return f"❌ Erreur lors du chargement du fichier CSV : {str(e)}"
