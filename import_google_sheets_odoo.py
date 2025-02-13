@@ -76,19 +76,27 @@ def create_tables():
     conn.close()
 
 def insert_into_postgres(product_data):
+    if not product_data:
+        print("⚠️ Aucune donnée à insérer dans PostgreSQL.")
+        return
+    
     conn = get_db_connection()
     cursor = conn.cursor()
-    execute_values(cursor, '''
-        INSERT INTO products (product_name, default_code, list_price, standard_price, barcode, last_updated)
-        VALUES %s
-        ON CONFLICT (default_code) DO UPDATE 
-        SET list_price = EXCLUDED.list_price,
-            standard_price = EXCLUDED.standard_price,
-            last_updated = NOW()
-    ''', product_data)
-    conn.commit()
-    cursor.close()
-    conn.close()
+    try:
+        execute_values(cursor, '''
+            INSERT INTO products (product_name, default_code, list_price, standard_price, barcode, last_updated)
+            VALUES %s
+            ON CONFLICT (default_code) DO UPDATE 
+            SET list_price = EXCLUDED.list_price,
+                standard_price = EXCLUDED.standard_price,
+                last_updated = NOW()
+        ''', product_data)
+        conn.commit()
+    except Exception as e:
+        print(f"❌ Erreur lors de l'insertion dans PostgreSQL : {e}")
+    finally:
+        cursor.close()
+        conn.close()
 
 def create_or_update_product(product_data):
     existing_product = odoo.execute_kw(ODOO_DB, uid, ODOO_API_KEY, 'product.template', 'search_read', [[['default_code', '=', product_data['default_code']]]], {'fields': ['id']})
@@ -119,19 +127,24 @@ def process_csv(csv_file):
     product_data_list = []
     
     for _, row in df.iterrows():
-        product_data = (
-            row.get("Nom", ""),
-            row.get("Fournisseurs / Code du produit du fournisseur", ""),
-            float(row.get("Prix de vente", "0")),
-            float(row.get("Fournisseurs / Prix", "0")),
-            row.get("Code-barres", ""),
-        )
-        product_data_list.append(product_data)
+        try:
+            product_data = (
+                row.get("Nom", ""),
+                row.get("Fournisseurs / Code du produit du fournisseur", ""),
+                float(row.get("Prix de vente", "0") or 0),
+                float(row.get("Fournisseurs / Prix", "0") or 0),
+                row.get("Code-barres", ""),
+                datetime.now()
+            )
+            product_data_list.append(product_data)
+        except ValueError as e:
+            print(f"⚠️ Erreur de conversion sur une ligne ignorée : {e}")
+            continue
         
         odoo_product_data = {
             'name': row.get("Nom", ""),
-            'list_price': float(row.get("Prix de vente", "0")),
-            'standard_price': float(row.get("Fournisseurs / Prix", "0")),
+            'list_price': float(row.get("Prix de vente", "0") or 0),
+            'standard_price': float(row.get("Fournisseurs / Prix", "0") or 0),
             'barcode': row.get("Code-barres", ""),
             'default_code': row.get("Fournisseurs / Code du produit du fournisseur", ""),
         }
