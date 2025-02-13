@@ -52,7 +52,7 @@ def get_tag_id(tag_name):
         return tag[0]['id']
     else:
         print(f"🟢 Création du tag : {tag_name}")
-        return odoo.execute_kw(ODOO_DB, uid, ODOO_API_KEY, 'product.template.tag', 'create', [{'name': tag_name}])
+        return odoo.execute_kw(ODOO_DB, uid, ODOO_API_KEY, 'product.tag', 'create', [{'name': tag_name}])
 
 def create_table():
     conn = get_db_connection()
@@ -85,7 +85,7 @@ def insert_into_postgres(product_data):
         execute_values(cursor, '''
             INSERT INTO products (id_externe, default_code, product_name, list_price, standard_price, product_tag, last_updated)
             VALUES %s
-            ON CONFLICT (default_code) DO UPDATE SET list_price = EXCLUDED.list_price, standard_price = EXCLUDED.standard_price, product_tag = EXCLUDED.product_tag, last_updated = NOW() 
+            ON CONFLICT (default_code) DO UPDATE 
             SET list_price = EXCLUDED.list_price,
                 standard_price = EXCLUDED.standard_price,
                 product_tag = EXCLUDED.product_tag,
