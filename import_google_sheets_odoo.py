@@ -29,7 +29,7 @@ def process_uploaded_file():
 def process_csv(csv_file):
     try:
         print("📥 Chargement du fichier CSV...")
-        df = pd.read_csv(csv_file, delimiter=',')  # Délimiteur virgule
+        df = pd.read_csv(csv_file, delimiter=',', encoding='ISO-8859-1')  # Délimiteur virgule avec encodage ISO-8859-1
         df.columns = df.columns.str.strip()  # Normaliser les noms de colonnes
     except Exception as e:
         return f"❌ Erreur lors du chargement du fichier CSV : {str(e)}"
