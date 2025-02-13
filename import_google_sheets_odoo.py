@@ -69,6 +69,9 @@ def insert_into_postgres(product_data):
         print("⚠️ Aucune donnée à insérer dans PostgreSQL.")
         return
     
+    # Suppression des doublons basés sur `default_code`
+    unique_data = list({row[1]: row for row in product_data}.values())
+    
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
@@ -79,7 +82,7 @@ def insert_into_postgres(product_data):
             SET list_price = EXCLUDED.list_price,
                 standard_price = EXCLUDED.standard_price,
                 last_updated = NOW()
-        ''', product_data)
+        ''', unique_data)
         conn.commit()
     except Exception as e:
         print(f"❌ Erreur lors de l'insertion dans PostgreSQL : {e}")
@@ -90,7 +93,7 @@ def insert_into_postgres(product_data):
 def create_products_from_postgres():
     conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute("SELECT id_externe, default_code, product_name, list_price, standard_price FROM products")
+    cursor.execute("SELECT DISTINCT ON (default_code) id_externe, default_code, product_name, list_price, standard_price FROM products")
     products = cursor.fetchall()
     cursor.close()
     conn.close()
