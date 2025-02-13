@@ -4,6 +4,7 @@ import psycopg2
 import csv
 import sys
 from psycopg2.extras import execute_values
+from datetime import datetime
 
 # 🔹 Augmenter la limite de lecture des lignes CSV
 csv.field_size_limit(sys.maxsize)
@@ -36,7 +37,7 @@ def process_csv(csv_file):
         print("📥 Chargement du fichier CSV avec correction d'encodage et séparateur...")
         df_iterator = pd.read_csv(csv_file, delimiter=',', encoding='utf-8', quoting=csv.QUOTE_MINIMAL, on_bad_lines='skip', dtype=str, chunksize=10000)
         df = pd.concat(df_iterator, ignore_index=True)
-        df.columns = df.columns.str.strip()  # Normaliser les noms de colonnes
+        df.columns = df.columns.str.strip()
 
         # Supprimer les lignes où "Artikelbezeichnung in FR" est vide
         df = df[df["Artikelbezeichnung in FR"].notna() & df["Artikelbezeichnung in FR"].str.strip().ne("")]
@@ -60,6 +61,10 @@ def process_csv(csv_file):
         # Remplacement des valeurs "9208336" par "Derendinger AG" dans "Kunden-Nr"
         df["Kunden-Nr"] = df["Kunden-Nr"].replace("9208336", "Derendinger AG")
         
+        # Ajout de la colonne de mise à jour
+        df["date_mise_a_jour"] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        df["maj_odoo"] = "Non"
+        
         # Renommer "Kunden-Nr" en "Fournisseurs / Fournisseur" et "Artikel-Nr." en "Fournisseurs / Code du produit du fournisseur"
         df.rename(columns={
             "Kunden-Nr": "Fournisseurs / Fournisseur",
@@ -68,19 +73,6 @@ def process_csv(csv_file):
     except Exception as e:
         return f"❌ Erreur lors du chargement du fichier CSV : {str(e)}"
     
-    expected_columns = [
-        "Fournisseurs / Fournisseur", "Fournisseurs / Code du produit du fournisseur", "Herstellerartikelnummer", "Artikelbezeichnung in FR",
-        "UVP exkl. MwSt.", "Nettopreis exkl. MwSt.", "Brand", "EAN-Code", "Fournisseurs / ID externe"
-    ]
-    found_columns = df.columns.tolist()
-    
-    if not all(col in found_columns for col in expected_columns):
-        missing_columns = [col for col in expected_columns if col not in found_columns]
-        extra_columns = [col for col in found_columns if col not in expected_columns]
-        print("❌ Colonnes attendues mais manquantes :", missing_columns)
-        print("⚠️ Colonnes trouvées en trop :", extra_columns)
-        return "❌ Le fichier CSV ne contient pas toutes les colonnes attendues. Vérifiez les noms et formats."
-    
     conn = get_db_connection()
     cursor = conn.cursor()
     
@@ -88,47 +80,50 @@ def process_csv(csv_file):
         CREATE TABLE IF NOT EXISTS produits (
             id SERIAL PRIMARY KEY,
             fournisseur VARCHAR(255),
-            code_produit_fournisseur VARCHAR(255),
+            code_produit_fournisseur VARCHAR(255) UNIQUE,
             id_externe VARCHAR(255),
             herstellerartikelnummer VARCHAR(255),
             artikelbezeichnung_fr VARCHAR(255),
             uvp_exkl_mwst NUMERIC(10,2),
             nettopreis_exkl_mwst NUMERIC(10,2),
             brand VARCHAR(255),
-            ean_code VARCHAR(255)
+            ean_code VARCHAR(255),
+            date_mise_a_jour TIMESTAMP,
+            maj_odoo VARCHAR(10)
         )
     """)
     conn.commit()
     
-    data_to_insert = [
-        (
-            row.get("Fournisseurs / Fournisseur", "") or "",
-            row.get("Fournisseurs / Code du produit du fournisseur", "") or "",
-            row.get("Fournisseurs / ID externe", "") or "",
-            row.get("Herstellerartikelnummer", "") or "",
-            row.get("Artikelbezeichnung in FR", "") or "",
-            float(row.get("UVP exkl. MwSt.", "0")) if row.get("UVP exkl. MwSt.") else 0,
-            float(row.get("Nettopreis exkl. MwSt.", "0")) if row.get("Nettopreis exkl. MwSt.") else 0,
-            row.get("Brand", "") or "",
-            row.get("EAN-Code", "") or ""
-        )
-        for _, row in df.iterrows()
-    ]
-    
-    print(f"🔍 Exemple de données à insérer: {data_to_insert[:5]}")
-    
-    insert_query = """
-        INSERT INTO produits (fournisseur, code_produit_fournisseur, id_externe, herstellerartikelnummer, artikelbezeichnung_fr, 
-                              uvp_exkl_mwst, nettopreis_exkl_mwst, brand, ean_code) 
-        VALUES %s
-    """
-    execute_values(cursor, insert_query, data_to_insert)
+    for _, row in df.iterrows():
+        cursor.execute("SELECT * FROM produits WHERE code_produit_fournisseur = %s", (row["Fournisseurs / Code du produit du fournisseur"],))
+        existing_product = cursor.fetchone()
+
+        if existing_product:
+            differences = [i for i, col in enumerate(df.columns) if str(existing_product[i]) != str(row[col])]
+            if differences:
+                cursor.execute("UPDATE produits SET date_mise_a_jour = %s, maj_odoo = 'Oui' WHERE code_produit_fournisseur = %s", (datetime.now(), row["Fournisseurs / Code du produit du fournisseur"]))
+        else:
+            cursor.execute("""
+                INSERT INTO produits (fournisseur, code_produit_fournisseur, id_externe, herstellerartikelnummer, artikelbezeichnung_fr, 
+                                      uvp_exkl_mwst, nettopreis_exkl_mwst, brand, ean_code, date_mise_a_jour, maj_odoo) 
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'Oui')
+            """, (
+                row.get("Fournisseurs / Fournisseur", ""),
+                row.get("Fournisseurs / Code du produit du fournisseur", ""),
+                row.get("Fournisseurs / ID externe", ""),
+                row.get("Herstellerartikelnummer", ""),
+                row.get("Artikelbezeichnung in FR", ""),
+                float(row.get("UVP exkl. MwSt.", "0")),
+                float(row.get("Nettopreis exkl. MwSt.", "0")),
+                row.get("Brand", ""),
+                row.get("EAN-Code", ""),
+                datetime.now()
+            ))
     conn.commit()
-    
     cursor.close()
     conn.close()
     
-    return f"✅ {len(data_to_insert)} produits insérés dans PostgreSQL."
+    return "✅ Mise à jour et insertion des produits terminée."
 
 if __name__ == '__main__':
     print("📂 Vérification des fichiers uploadés...")
