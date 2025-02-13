@@ -2,7 +2,11 @@ import os
 import pandas as pd
 import psycopg2
 import csv
+import sys
 from psycopg2.extras import execute_values
+
+# 🔹 Augmenter la limite de lecture des lignes CSV
+csv.field_size_limit(sys.maxsize)
 
 # 🔹 Chemin du dossier où le fichier est uploadé
 UPLOAD_FOLDER = '/var/www/webroot/ROOT/uploads/'
@@ -24,7 +28,10 @@ def get_db_connection():
 def detect_delimiter(csv_file):
     with open(csv_file, 'r', encoding="ISO-8859-1") as f:
         first_line = f.readline()
-        dialect = csv.Sniffer().sniff(first_line)
+        try:
+            dialect = csv.Sniffer().sniff(first_line)
+        except csv.Error:
+            dialect = csv.get_dialect('excel')  # Fallback si Sniffer échoue
         return dialect.delimiter
 
 def process_uploaded_file():
@@ -39,8 +46,9 @@ def process_csv(csv_file):
         delimiter = detect_delimiter(csv_file)
         print(f"✅ Délimiteur détecté : '{delimiter}'")
         
-        print("📥 Chargement du fichier CSV...")
-        df = pd.read_csv(csv_file, delimiter=delimiter, encoding='ISO-8859-1', quoting=csv.QUOTE_MINIMAL, on_bad_lines='skip')
+        print("📥 Chargement du fichier CSV en mode chunk...")
+        df_iterator = pd.read_csv(csv_file, delimiter=delimiter, encoding='ISO-8859-1', quoting=csv.QUOTE_MINIMAL, on_bad_lines='skip', chunksize=10000)
+        df = pd.concat(df_iterator, ignore_index=True)
         df.columns = df.columns.str.strip()  # Normaliser les noms de colonnes
     except Exception as e:
         return f"❌ Erreur lors du chargement du fichier CSV : {str(e)}"
