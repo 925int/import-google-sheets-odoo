@@ -13,6 +13,12 @@ csv.field_size_limit(sys.maxsize)
 # 🔹 Chemin du dossier où le fichier est uploadé
 UPLOAD_FOLDER = '/var/www/webroot/ROOT/uploads/'
 
+# 🔹 Connexion à PostgreSQL
+POSTGRES_HOST = "node172643-env-8840643.jcloud.ik-server.com"
+POSTGRES_DB = "alex_odoo"
+POSTGRES_USER = "Odoo"
+POSTGRES_PASSWORD = "C:2&#:4G9pAO823O@3iC"
+
 # 🔹 Connexion à Odoo avec JSON-RPC et clé API
 ODOO_URL = "https://alex-mecanique.odoo.com/"
 ODOO_DB = "alex-mecanique"
@@ -32,33 +38,57 @@ if not uid:
 
 odoo = xmlrpc.client.ServerProxy(f'{ODOO_URL}/xmlrpc/2/object')
 
-# 🔹 Taille des batchs pour l'import
-BATCH_SIZE = 500
+def get_db_connection():
+    return psycopg2.connect(
+        host=POSTGRES_HOST,
+        database=POSTGRES_DB,
+        user=POSTGRES_USER,
+        password=POSTGRES_PASSWORD
+    )
 
-def get_existing_products():
-    existing_products = odoo.execute_kw(ODOO_DB, uid, ODOO_API_KEY, 'product.template', 'search_read', [[]], {'fields': ['default_code', 'id']})
-    return {p['default_code']: p['id'] for p in existing_products if p['default_code']}
+def create_tables():
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS product_import (
+            id SERIAL PRIMARY KEY,
+            name TEXT,
+            default_code TEXT UNIQUE,
+            list_price FLOAT,
+            standard_price FLOAT,
+            barcode TEXT,
+            last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+    conn.commit()
+    cursor.close()
+    conn.close()
 
-def create_or_update_products(product_batch):
-    existing_products = get_existing_products()
-    new_products = []
-    update_products = []
+def insert_into_postgres(product_data):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    execute_values(cursor, '''
+        INSERT INTO product_import (name, default_code, list_price, standard_price, barcode, last_updated)
+        VALUES %s
+        ON CONFLICT (default_code) DO UPDATE 
+        SET list_price = EXCLUDED.list_price,
+            standard_price = EXCLUDED.standard_price,
+            last_updated = NOW()
+    ''', product_data)
+    conn.commit()
+    cursor.close()
+    conn.close()
+
+def create_or_update_product(product_data):
+    existing_product = odoo.execute_kw(ODOO_DB, uid, ODOO_API_KEY, 'product.template', 'search_read', [[['default_code', '=', product_data['default_code']]]], {'fields': ['id']})
     
-    for product_data in product_batch:
-        default_code = product_data['default_code']
-        if default_code in existing_products:
-            update_products.append((existing_products[default_code], product_data))
-        else:
-            new_products.append(product_data)
-    
-    if new_products:
-        created_ids = odoo.execute_kw(ODOO_DB, uid, ODOO_API_KEY, 'product.template', 'create', [new_products])
-        print(f"✅ {len(created_ids)} nouveaux produits importés.")
-    
-    if update_products:
-        for prod_id, data in update_products:
-            odoo.execute_kw(ODOO_DB, uid, ODOO_API_KEY, 'product.template', 'write', [[prod_id], data])
-        print(f"🔄 {len(update_products)} produits mis à jour.")
+    if existing_product:
+        product_id = existing_product[0]['id']
+        odoo.execute_kw(ODOO_DB, uid, ODOO_API_KEY, 'product.template', 'write', [[product_id], product_data])
+        print(f"🔄 Produit mis à jour : {product_data['name']}")
+    else:
+        product_id = odoo.execute_kw(ODOO_DB, uid, ODOO_API_KEY, 'product.template', 'create', [product_data])
+        print(f"✅ Nouveau produit importé : {product_data['name']}")
 
 def process_uploaded_file():
     csv_file = os.path.join(UPLOAD_FOLDER, "Derendinger - PF-9208336.csv")
@@ -68,35 +98,39 @@ def process_uploaded_file():
 
 def process_csv(csv_file):
     try:
-        print("📥 Chargement du fichier CSV avec encodage UTF-8...")
-        df_iterator = pd.read_csv(csv_file, delimiter=',', encoding='utf-8', quoting=csv.QUOTE_MINIMAL, on_bad_lines='skip', dtype=str, chunksize=10000)
-        df = pd.concat(df_iterator, ignore_index=True)
+        print("📥 Chargement du fichier CSV...")
+        df = pd.read_csv(csv_file, delimiter=',', encoding='utf-8', quoting=csv.QUOTE_MINIMAL, on_bad_lines='skip', dtype=str)
         df.columns = df.columns.str.strip()
     except Exception as e:
         return f"❌ Erreur lors du chargement du fichier CSV : {str(e)}"
     
-    print("🔄 Début de l'importation dans Odoo...")
-    product_batch = []
+    print("🔄 Début de l'importation dans PostgreSQL et Odoo...")
+    product_data_list = []
     
     for _, row in df.iterrows():
-        product_data = {
+        product_data = (
+            row.get("Nom", ""),
+            row.get("Fournisseurs / Code du produit du fournisseur", ""),
+            float(row.get("Prix de vente", "0")),
+            float(row.get("Fournisseurs / Prix", "0")),
+            row.get("Code-barres", ""),
+        )
+        product_data_list.append(product_data)
+        
+        odoo_product_data = {
             'name': row.get("Nom", ""),
             'list_price': float(row.get("Prix de vente", "0")),
             'standard_price': float(row.get("Fournisseurs / Prix", "0")),
             'barcode': row.get("Code-barres", ""),
             'default_code': row.get("Fournisseurs / Code du produit du fournisseur", ""),
         }
-        product_batch.append(product_data)
-        
-        if len(product_batch) >= BATCH_SIZE:
-            create_or_update_products(product_batch)
-            product_batch = []
+        create_or_update_product(odoo_product_data)
     
-    if product_batch:
-        create_or_update_products(product_batch)
-    
+    insert_into_postgres(product_data_list)
     return "✅ Importation des produits terminée."
 
 if __name__ == '__main__':
+    print("📂 Création des tables si elles n'existent pas...")
+    create_tables()
     print("📂 Vérification des fichiers uploadés...")
     print(process_uploaded_file())
