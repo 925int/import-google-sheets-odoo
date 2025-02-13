@@ -85,7 +85,7 @@ def insert_into_postgres(product_data):
         execute_values(cursor, '''
             INSERT INTO products (id_externe, default_code, product_name, list_price, standard_price, product_tag, last_updated)
             VALUES %s
-            ON CONFLICT (default_code) DO UPDATE 
+            ON CONFLICT (default_code) DO NOTHING 
             SET list_price = EXCLUDED.list_price,
                 standard_price = EXCLUDED.standard_price,
                 product_tag = EXCLUDED.product_tag,
