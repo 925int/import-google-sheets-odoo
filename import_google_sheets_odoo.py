@@ -3,7 +3,7 @@ import pandas as pd
 import psycopg2
 import csv
 import sys
-import xmlrpc.client
+import requests
 from psycopg2.extras import execute_values
 from datetime import datetime
 
@@ -19,16 +19,14 @@ POSTGRES_DB = "alex_odoo"
 POSTGRES_USER = "Odoo"
 POSTGRES_PASSWORD = "C:2&#:4G9pAO823O@3iC"
 
-# 🔹 Connexion à Odoo
-ODOO_URL = "https://your-odoo-instance.com"
-ODOO_DB = "your_db_name"
-ODOO_USERNAME = "your_email@example.com"
-ODOO_PASSWORD = "your_password"
+# 🔹 Connexion à Odoo avec API Key
+ODOO_URL = "https://alex-mecanique.odoo.com/"
+ODOO_DB = "alex-mecanique"
+ODOO_API_KEY = os.getenv("ODOO_API_KEY")  # Utilisation de la variable d'environnement
 
-# 🔹 Connexion API Odoo
-common = xmlrpc.client.ServerProxy(f'{ODOO_URL}/xmlrpc/2/common')
-ud = xmlrpc.client.ServerProxy(f'{ODOO_URL}/xmlrpc/2/object')
-uid = common.authenticate(ODOO_DB, ODOO_USERNAME, ODOO_PASSWORD, {})
+if not ODOO_API_KEY:
+    print("❌ Clé API Odoo non définie. Vérifie ta variable d'environnement ODOO_API_KEY.")
+    sys.exit(1)
 
 def get_db_connection():
     return psycopg2.connect(
@@ -37,6 +35,31 @@ def get_db_connection():
         user=POSTGRES_USER,
         password=POSTGRES_PASSWORD
     )
+
+def create_or_update_product(product_data):
+    headers = {
+        'Content-Type': 'application/json',
+        'Authorization': f'Bearer {ODOO_API_KEY}'
+    }
+    search_url = f"{ODOO_URL}/api/product.template/search"
+    update_url = f"{ODOO_URL}/api/product.template/update"
+    create_url = f"{ODOO_URL}/api/product.template/create"
+
+    # Vérifier si le produit existe déjà
+    response = requests.post(search_url, json={'default_code': product_data['default_code']}, headers=headers)
+    if response.status_code == 200 and response.json():
+        product_id = response.json()[0]['id']
+        update_response = requests.post(update_url, json={'id': product_id, **product_data}, headers=headers)
+        if update_response.status_code == 200:
+            print(f"🔄 Produit mis à jour : {product_data['name']}")
+        else:
+            print(f"❌ Erreur lors de la mise à jour du produit {product_data['name']}: {update_response.text}")
+    else:
+        create_response = requests.post(create_url, json=product_data, headers=headers)
+        if create_response.status_code == 200:
+            print(f"✅ Nouveau produit importé : {product_data['name']}")
+        else:
+            print(f"❌ Erreur lors de la création du produit {product_data['name']}: {create_response.text}")
 
 def process_uploaded_file():
     csv_file = os.path.join(UPLOAD_FOLDER, "Derendinger - PF-9208336.csv")
@@ -92,8 +115,7 @@ def process_csv(csv_file):
     except Exception as e:
         return f"❌ Erreur lors du chargement du fichier CSV : {str(e)}"
     
-    conn = get_db_connection()
-    cursor = conn.cursor()
+    print("🔄 Début de l'importation dans Odoo...")
     
     for _, row in df.iterrows():
         product_data = {
@@ -103,23 +125,7 @@ def process_csv(csv_file):
             'barcode': row.get("Code-barres", ""),
             'default_code': row.get("Fournisseurs / Code du produit du fournisseur", ""),
         }
-        
-        # Vérifier si le produit existe déjà dans Odoo
-        existing_product = ud.execute_kw(ODOO_DB, uid, ODOO_PASSWORD, 'product.template', 'search_read', [[['default_code', '=', product_data['default_code']]]], {'fields': ['id']})
-        
-        if existing_product:
-            # Mise à jour du produit existant
-            product_id = existing_product[0]['id']
-            ud.execute_kw(ODOO_DB, uid, ODOO_PASSWORD, 'product.template', 'write', [[product_id], product_data])
-            print(f"🔄 Produit mis à jour : {product_data['name']}")
-        else:
-            # Création d'un nouveau produit
-            ud.execute_kw(ODOO_DB, uid, ODOO_PASSWORD, 'product.template', 'create', [product_data])
-            print(f"✅ Nouveau produit importé : {product_data['name']}")
-    
-    conn.commit()
-    cursor.close()
-    conn.close()
+        create_or_update_product(product_data)
     
     return "✅ Importation des produits dans Odoo terminée."
 
