@@ -3,7 +3,7 @@ import pandas as pd
 import psycopg2
 import csv
 import sys
-import requests
+import xmlrpc.client
 from psycopg2.extras import execute_values
 from datetime import datetime
 
@@ -19,7 +19,7 @@ POSTGRES_DB = "alex_odoo"
 POSTGRES_USER = "Odoo"
 POSTGRES_PASSWORD = "C:2&#:4G9pAO823O@3iC"
 
-# 🔹 Connexion à Odoo avec API Key
+# 🔹 Connexion à Odoo avec JSON-RPC et clé API
 ODOO_URL = "https://alex-mecanique.odoo.com/"
 ODOO_DB = "alex-mecanique"
 ODOO_API_KEY = os.getenv("ODOO_API_KEY")  # Utilisation de la variable d'environnement
@@ -27,6 +27,15 @@ ODOO_API_KEY = os.getenv("ODOO_API_KEY")  # Utilisation de la variable d'environ
 if not ODOO_API_KEY:
     print("❌ Clé API Odoo non définie. Vérifie ta variable d'environnement ODOO_API_KEY.")
     sys.exit(1)
+
+common = xmlrpc.client.ServerProxy(f'{ODOO_URL}/xmlrpc/2/common')
+uid = common.authenticate(ODOO_DB, ODOO_API_KEY, ODOO_API_KEY, {})
+
+if not uid:
+    print("❌ Erreur d'authentification à Odoo. Vérifie ta clé API.")
+    sys.exit(1)
+
+odoo = xmlrpc.client.ServerProxy(f'{ODOO_URL}/xmlrpc/2/object')
 
 def get_db_connection():
     return psycopg2.connect(
@@ -37,29 +46,16 @@ def get_db_connection():
     )
 
 def create_or_update_product(product_data):
-    headers = {
-        'Content-Type': 'application/json',
-        'Authorization': f'Bearer {ODOO_API_KEY}'
-    }
-    search_url = f"{ODOO_URL}/api/product.template/search"
-    update_url = f"{ODOO_URL}/api/product.template/update"
-    create_url = f"{ODOO_URL}/api/product.template/create"
-
     # Vérifier si le produit existe déjà
-    response = requests.post(search_url, json={'default_code': product_data['default_code']}, headers=headers)
-    if response.status_code == 200 and response.json():
-        product_id = response.json()[0]['id']
-        update_response = requests.post(update_url, json={'id': product_id, **product_data}, headers=headers)
-        if update_response.status_code == 200:
-            print(f"🔄 Produit mis à jour : {product_data['name']}")
-        else:
-            print(f"❌ Erreur lors de la mise à jour du produit {product_data['name']}: {update_response.text}")
+    existing_product = odoo.execute_kw(ODOO_DB, uid, ODOO_API_KEY, 'product.template', 'search_read', [[['default_code', '=', product_data['default_code']]]], {'fields': ['id']})
+    
+    if existing_product:
+        product_id = existing_product[0]['id']
+        odoo.execute_kw(ODOO_DB, uid, ODOO_API_KEY, 'product.template', 'write', [[product_id], product_data])
+        print(f"🔄 Produit mis à jour : {product_data['name']}")
     else:
-        create_response = requests.post(create_url, json=product_data, headers=headers)
-        if create_response.status_code == 200:
-            print(f"✅ Nouveau produit importé : {product_data['name']}")
-        else:
-            print(f"❌ Erreur lors de la création du produit {product_data['name']}: {create_response.text}")
+        odoo.execute_kw(ODOO_DB, uid, ODOO_API_KEY, 'product.template', 'create', [product_data])
+        print(f"✅ Nouveau produit importé : {product_data['name']}")
 
 def process_uploaded_file():
     csv_file = os.path.join(UPLOAD_FOLDER, "Derendinger - PF-9208336.csv")
