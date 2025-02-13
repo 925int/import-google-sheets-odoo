@@ -148,7 +148,7 @@ def process_csv(csv_file):
     tag_id = get_tag_id("Derendinger")
     
     for _, row in df.iterrows():
-        artikel_nr = row.get("Artikel-Nr.", "").strip()
+        artikel_nr = str(row.get("Artikel-Nr.", "")).strip()
         if not artikel_nr:
             continue
         try:
