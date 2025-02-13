@@ -120,7 +120,7 @@ def process_csv(csv_file):
             'default_code': row.get("Fournisseurs / Code du produit du fournisseur", ""),
         }
         supplier_data = {
-            'name': row.get("Fournisseurs / Fournisseur", ""),
+            'partner_id': get_supplier_id(row.get("Fournisseurs / Fournisseur", "")),
             'product_code': row.get("Fournisseurs / ID externe", ""),
             'price': float(row.get("Fournisseurs / Prix", "0")),
             'delay': 1,
