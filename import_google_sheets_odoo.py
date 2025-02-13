@@ -57,7 +57,7 @@ def create_table():
             product_name TEXT,
             list_price FLOAT,
             standard_price FLOAT,
-            product_tag TEXT,
+            product_tag TEXT DEFAULT 'Derendinger',
             last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     ''')
