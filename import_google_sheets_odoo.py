@@ -3,7 +3,9 @@ import pandas as pd
 import psycopg2
 import csv
 import sys
+import xmlrpc.client
 from psycopg2.extras import execute_values
+from datetime import datetime
 
 # 🔹 Augmenter la limite de lecture des lignes CSV
 csv.field_size_limit(sys.maxsize)
@@ -11,19 +13,52 @@ csv.field_size_limit(sys.maxsize)
 # 🔹 Chemin du dossier où le fichier est uploadé
 UPLOAD_FOLDER = '/var/www/webroot/ROOT/uploads/'
 
-# 🔹 Connexion à PostgreSQL
-POSTGRES_HOST = "node172643-env-8840643.jcloud.ik-server.com"
-POSTGRES_DB = "alex_odoo"
-POSTGRES_USER = "Odoo"
-POSTGRES_PASSWORD = "C:2&#:4G9pAO823O@3iC"
+# 🔹 Connexion à Odoo avec JSON-RPC et clé API
+ODOO_URL = "https://alex-mecanique.odoo.com/"
+ODOO_DB = "alex-mecanique"
+ODOO_API_KEY = os.getenv("ODOO_API_KEY")  # Utilisation de la variable d'environnement
+ODOO_USERNAME = "pascal@925.ch"  # Remplace avec ton email Odoo
 
-def get_db_connection():
-    return psycopg2.connect(
-        host=POSTGRES_HOST,
-        database=POSTGRES_DB,
-        user=POSTGRES_USER,
-        password=POSTGRES_PASSWORD
-    )
+if not ODOO_API_KEY:
+    print("❌ Clé API Odoo non définie. Vérifie ta variable d'environnement ODOO_API_KEY.")
+    sys.exit(1)
+
+common = xmlrpc.client.ServerProxy(f'{ODOO_URL}/xmlrpc/2/common')
+uid = common.authenticate(ODOO_DB, ODOO_USERNAME, ODOO_API_KEY, {})
+
+if not uid:
+    print("❌ Erreur d'authentification à Odoo. Vérifie ton email et ta clé API.")
+    sys.exit(1)
+
+odoo = xmlrpc.client.ServerProxy(f'{ODOO_URL}/xmlrpc/2/object')
+
+# 🔹 Taille des batchs pour l'import
+BATCH_SIZE = 500
+
+def get_existing_products():
+    existing_products = odoo.execute_kw(ODOO_DB, uid, ODOO_API_KEY, 'product.template', 'search_read', [[]], {'fields': ['default_code', 'id']})
+    return {p['default_code']: p['id'] for p in existing_products if p['default_code']}
+
+def create_or_update_products(product_batch):
+    existing_products = get_existing_products()
+    new_products = []
+    update_products = []
+    
+    for product_data in product_batch:
+        default_code = product_data['default_code']
+        if default_code in existing_products:
+            update_products.append((existing_products[default_code], product_data))
+        else:
+            new_products.append(product_data)
+    
+    if new_products:
+        created_ids = odoo.execute_kw(ODOO_DB, uid, ODOO_API_KEY, 'product.template', 'create', [new_products])
+        print(f"✅ {len(created_ids)} nouveaux produits importés.")
+    
+    if update_products:
+        for prod_id, data in update_products:
+            odoo.execute_kw(ODOO_DB, uid, ODOO_API_KEY, 'product.template', 'write', [[prod_id], data])
+        print(f"🔄 {len(update_products)} produits mis à jour.")
 
 def process_uploaded_file():
     csv_file = os.path.join(UPLOAD_FOLDER, "Derendinger - PF-9208336.csv")
@@ -33,76 +68,34 @@ def process_uploaded_file():
 
 def process_csv(csv_file):
     try:
-        print("📥 Chargement du fichier CSV avec correction d'encodage et séparateur...")
+        print("📥 Chargement du fichier CSV avec encodage UTF-8...")
         df_iterator = pd.read_csv(csv_file, delimiter=',', encoding='utf-8', quoting=csv.QUOTE_MINIMAL, on_bad_lines='skip', dtype=str, chunksize=10000)
         df = pd.concat(df_iterator, ignore_index=True)
-        df.columns = df.columns.str.strip()  # Normaliser les noms de colonnes
-
-        # Convertir les prix en float en remplaçant les virgules par des points
-        df["UVP exkl. MwSt."] = df["UVP exkl. MwSt."].astype(str).str.replace(',', '.').astype(float)
-        df["Nettopreis exkl. MwSt."] = df["Nettopreis exkl. MwSt."].astype(str).str.replace(',', '.').astype(float)
-
-        # Correction du format des codes EAN pour éviter la notation scientifique
-        df["EAN-Code"] = df["EAN-Code"].apply(lambda x: f"{int(float(x))}" if isinstance(x, str) and x.replace('.', '', 1).isdigit() else x)
+        df.columns = df.columns.str.strip()
     except Exception as e:
         return f"❌ Erreur lors du chargement du fichier CSV : {str(e)}"
     
-    expected_columns = [
-        "Kunden-Nr", "Artikel-Nr.", "Herstellerartikelnummer", "Artikelbezeichnung in FR",
-        "UVP exkl. MwSt.", "Nettopreis exkl. MwSt.", "Brand", "EAN-Code"
-    ]
-    found_columns = df.columns.tolist()
+    print("🔄 Début de l'importation dans Odoo...")
+    product_batch = []
     
-    if not all(col in found_columns for col in expected_columns):
-        missing_columns = [col for col in expected_columns if col not in found_columns]
-        extra_columns = [col for col in found_columns if col not in expected_columns]
-        print("❌ Colonnes attendues mais manquantes :", missing_columns)
-        print("⚠️ Colonnes trouvées en trop :", extra_columns)
-        return "❌ Le fichier CSV ne contient pas toutes les colonnes attendues. Vérifiez les noms et formats."
+    for _, row in df.iterrows():
+        product_data = {
+            'name': row.get("Nom", ""),
+            'list_price': float(row.get("Prix de vente", "0")),
+            'standard_price': float(row.get("Fournisseurs / Prix", "0")),
+            'barcode': row.get("Code-barres", ""),
+            'default_code': row.get("Fournisseurs / Code du produit du fournisseur", ""),
+        }
+        product_batch.append(product_data)
+        
+        if len(product_batch) >= BATCH_SIZE:
+            create_or_update_products(product_batch)
+            product_batch = []
     
-    conn = get_db_connection()
-    cursor = conn.cursor()
+    if product_batch:
+        create_or_update_products(product_batch)
     
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS produits (
-            id SERIAL PRIMARY KEY,
-            kunden_nr VARCHAR(255),
-            artikel_nr VARCHAR(255),
-            herstellerartikelnummer VARCHAR(255),
-            artikelbezeichnung_fr VARCHAR(255),
-            uvp_exkl_mwst NUMERIC(10,2),
-            nettopreis_exkl_mwst NUMERIC(10,2),
-            brand VARCHAR(255),
-            ean_code VARCHAR(255)
-        )
-    """)
-    conn.commit()
-    
-    insert_query = """
-        INSERT INTO produits (kunden_nr, artikel_nr, herstellerartikelnummer, artikelbezeichnung_fr, 
-                              uvp_exkl_mwst, nettopreis_exkl_mwst, brand, ean_code) 
-        VALUES %s
-    """
-    data_to_insert = [
-        (
-            row.get("Kunden-Nr", ""),
-            row.get("Artikel-Nr.", ""),
-            row.get("Herstellerartikelnummer", ""),
-            row.get("Artikelbezeichnung in FR", ""),
-            float(row.get("UVP exkl. MwSt.", 0) or 0),
-            float(row.get("Nettopreis exkl. MwSt.", 0) or 0),
-            row.get("Brand", ""),
-            row.get("EAN-Code", "")
-        )
-        for _, row in df.iterrows()
-    ]
-    execute_values(cursor, insert_query, data_to_insert)
-    conn.commit()
-    
-    cursor.close()
-    conn.close()
-    
-    return f"✅ {len(data_to_insert)} produits insérés dans PostgreSQL."
+    return "✅ Importation des produits terminée."
 
 if __name__ == '__main__':
     print("📂 Vérification des fichiers uploadés...")
