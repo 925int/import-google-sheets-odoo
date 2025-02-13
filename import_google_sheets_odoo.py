@@ -47,11 +47,11 @@ def get_db_connection():
     )
 
 def get_tag_id(tag_name):
-    tag = odoo.execute_kw(ODOO_DB, uid, ODOO_API_KEY, 'product.template.tag', 'search_read', [[['name', '=', tag_name]]], {'fields': ['id']})
+    tag = odoo.execute_kw(ODOO_DB, uid, ODOO_API_KEY, 'product.template.product_tag_ids', 'search_read', [[['name', '=', tag_name]]], {'fields': ['id']})
     if tag:
         return tag[0]['id']
     else:
-        return odoo.execute_kw(ODOO_DB, uid, ODOO_API_KEY, 'product.template.tag', 'create', [{'name': tag_name}])
+        return odoo.execute_kw(ODOO_DB, uid, ODOO_API_KEY, 'product.tag', 'create', [{'name': tag_name}])
 
 def create_table():
     conn = get_db_connection()
