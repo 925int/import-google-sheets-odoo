@@ -46,6 +46,13 @@ def get_db_connection():
         password=POSTGRES_PASSWORD
     )
 
+def get_tag_id(tag_name):
+    tag = odoo.execute_kw(ODOO_DB, uid, ODOO_API_KEY, 'product.template.tag', 'search_read', [[['name', '=', tag_name]]], {'fields': ['id']})
+    if tag:
+        return tag[0]['id']
+    else:
+        return odoo.execute_kw(ODOO_DB, uid, ODOO_API_KEY, 'product.template.tag', 'create', [{'name': tag_name}])
+
 def create_table():
     conn = get_db_connection()
     cursor = conn.cursor()
@@ -57,7 +64,7 @@ def create_table():
             product_name TEXT,
             list_price FLOAT,
             standard_price FLOAT,
-            product_tag TEXT DEFAULT 'Derendinger',
+            product_tag_id INTEGER,
             last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     ''')
@@ -75,12 +82,12 @@ def insert_into_postgres(product_data):
     cursor = conn.cursor()
     try:
         execute_values(cursor, '''
-            INSERT INTO products (id_externe, default_code, product_name, list_price, standard_price, product_tag, last_updated)
+            INSERT INTO products (id_externe, default_code, product_name, list_price, standard_price, product_tag_id, last_updated)
             VALUES %s
             ON CONFLICT (default_code) DO UPDATE 
             SET list_price = EXCLUDED.list_price,
                 standard_price = EXCLUDED.standard_price,
-                product_tag = EXCLUDED.product_tag,
+                product_tag_id = EXCLUDED.product_tag_id,
                 last_updated = NOW()
         ''', product_data)
         conn.commit()
@@ -96,7 +103,7 @@ def insert_into_postgres(product_data):
 def create_products_in_odoo():
     conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute("SELECT id_externe, default_code, product_name, list_price, standard_price, product_tag FROM products")
+    cursor.execute("SELECT id_externe, default_code, product_name, list_price, standard_price, product_tag_id FROM products")
     products = cursor.fetchall()
     cursor.close()
     conn.close()
@@ -107,7 +114,7 @@ def create_products_in_odoo():
             'name': product[2],
             'list_price': product[3],
             'standard_price': product[4],
-            'product_tag_ids': [(6, 0, [product[5]])]  # Ajout de l'étiquette "Derendinger"
+            'product_tag_ids': [(6, 0, [product[5]])]
         }
         print(f"🟢 Tentative de création/mise à jour dans Odoo : {product_data}")
         existing_product = odoo.execute_kw(ODOO_DB, uid, ODOO_API_KEY, 'product.template', 'search_read', [[['default_code', '=', product_data['default_code']]]], {'fields': ['id']})
@@ -132,22 +139,17 @@ def process_csv(csv_file):
         df = pd.read_csv(csv_file, delimiter=',', encoding='utf-8', quoting=csv.QUOTE_MINIMAL, on_bad_lines='skip', dtype=str)
         df.columns = df.columns.str.strip()
         print(df.head(5))  # Vérifier si les données sont bien lues
-        print("🟢 Vérification des valeurs de artikel_nr :")
-        print(df["Artikel-Nr."].head(10))
-        print(f"🟢 Nombre total de lignes : {len(df)}")
-        print(f"🟢 Nombre de lignes avec artikel_nr non vide : {df['Artikel-Nr.'].dropna().shape[0]}")
     except Exception as e:
         return f"❌ Erreur lors du chargement du fichier CSV : {str(e)}"
     
     print("🔄 Début de l'importation dans PostgreSQL...")
     product_data_list = []
+    tag_id = get_tag_id("Derendinger")
     
     for _, row in df.iterrows():
         artikel_nr = row.get("Artikel-Nr.", "").strip()
         if not artikel_nr:
-            print("⚠️ Ligne ignorée car 'Artikel-Nr.' est vide.")
             continue
-        
         try:
             product_data = (
                 f"drd.{artikel_nr}",
@@ -155,7 +157,7 @@ def process_csv(csv_file):
                 row.get("Artikelbezeichnung in FR", ""),
                 float(row.get("UVP exkl. MwSt.", "0") or 0),
                 float(row.get("Nettopreis exkl. MwSt.", "0") or 0),
-                "Derendinger",  # Ajout de l'étiquette produit
+                tag_id,
                 datetime.now()
             )
             product_data_list.append(product_data)
@@ -168,9 +170,6 @@ def process_csv(csv_file):
     return "✅ Importation des produits terminée."
 
 if __name__ == '__main__':
-    print("📂 Vérification et création de la table si nécessaire...")
     create_table()
-    print("📂 Vérification des fichiers uploadés...")
     print(process_uploaded_file())
-    print("📂 Création des produits dans Odoo...")
     create_products_in_odoo()
