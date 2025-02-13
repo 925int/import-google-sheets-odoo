@@ -38,7 +38,8 @@ if not uid:
 
 odoo = xmlrpc.client.ServerProxy(f'{ODOO_URL}/xmlrpc/2/object')
 
-def get_supplier_id(supplier_name):
+def get_supplier_id():
+    supplier_name = "Derendinger AG"
     supplier = odoo.execute_kw(ODOO_DB, uid, ODOO_API_KEY, 'res.partner', 'search_read', [[['name', '=', supplier_name]]], {'fields': ['id']})
     if supplier:
         return supplier[0]['id']
@@ -77,7 +78,7 @@ def create_or_update_product(product_data, supplier_data):
         print(f"✅ Nouveau produit importé : {product_data['name']}")
     
     # Ajouter le fournisseur
-    supplier_data['partner_id'] = get_supplier_id(supplier_data['partner_id'])
+    supplier_data['partner_id'] = get_supplier_id()
     supplier_data['product_tmpl_id'] = product_id
     odoo.execute_kw(ODOO_DB, uid, ODOO_API_KEY, 'product.supplierinfo', 'create', [supplier_data])
     print(f"✅ Fournisseur ajouté : {supplier_data['partner_id']}")
@@ -94,26 +95,6 @@ def process_csv(csv_file):
         df_iterator = pd.read_csv(csv_file, delimiter=',', encoding='utf-8', quoting=csv.QUOTE_MINIMAL, on_bad_lines='skip', dtype=str, chunksize=10000)
         df = pd.concat(df_iterator, ignore_index=True)
         df.columns = df.columns.str.strip()
-
-        # Supprimer les lignes où "Artikelbezeichnung in FR" est vide
-        df = df[df["Artikelbezeichnung in FR"].notna() & df["Artikelbezeichnung in FR"].str.strip().ne("")]
-
-        # Vérification du nombre de lignes chargées
-        print(f"🔍 Nombre de lignes chargées dans df: {len(df)}")
-
-        # Convertir les prix en float en remplaçant les virgules par des points
-        df["UVP exkl. MwSt."] = df["UVP exkl. MwSt."].astype(str).str.replace(',', '.').astype(float)
-        df["Nettopreis exkl. MwSt."] = df["Nettopreis exkl. MwSt."].astype(str).str.replace(',', '.').astype(float)
-
-        # Renommer les colonnes
-        df.rename(columns={
-            "Kunden-Nr": "Fournisseurs / Fournisseur",
-            "Artikel-Nr.": "Fournisseurs / Code du produit du fournisseur",
-            "Artikelbezeichnung in FR": "Nom",
-            "UVP exkl. MwSt.": "Prix de vente",
-            "Nettopreis exkl. MwSt.": "Fournisseurs / Prix",
-            "EAN-Code": "Code-barres"
-        }, inplace=True)
     except Exception as e:
         return f"❌ Erreur lors du chargement du fichier CSV : {str(e)}"
     
@@ -128,8 +109,8 @@ def process_csv(csv_file):
             'default_code': row.get("Fournisseurs / Code du produit du fournisseur", ""),
         }
         supplier_data = {
-            'partner_id': get_supplier_id("Derendinger AG"),
-            'product_code': row.get("Fournisseurs / ID externe", ""),
+            'partner_id': get_supplier_id(),
+            'product_code': row.get("Fournisseurs / ID externe", "") + ".four",
             'price': float(row.get("Fournisseurs / Prix", "0")),
             'delay': 1,
         }
