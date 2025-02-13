@@ -70,7 +70,11 @@ def insert_into_postgres(product_data):
         return
     
     # Suppression des doublons basés sur `default_code`
-    unique_data = list({row[1]: row for row in product_data}.values())
+    unique_data = list({row[1]: row for row in product_data if row[1]}.values())
+    
+    if not unique_data:
+        print("⚠️ Aucune donnée unique à insérer après suppression des doublons.")
+        return
     
     conn = get_db_connection()
     cursor = conn.cursor()
@@ -84,6 +88,9 @@ def insert_into_postgres(product_data):
                 last_updated = NOW()
         ''', unique_data)
         conn.commit()
+        cursor.execute("SELECT COUNT(*) FROM products;")
+        row_count = cursor.fetchone()[0]
+        print(f"✅ Nombre de lignes en base après insertion : {row_count}")
     except Exception as e:
         print(f"❌ Erreur lors de l'insertion dans PostgreSQL : {e}")
     finally:
@@ -97,6 +104,10 @@ def create_products_from_postgres():
     products = cursor.fetchall()
     cursor.close()
     conn.close()
+    
+    if not products:
+        print("⚠️ Aucun produit trouvé en base pour Odoo.")
+        return
     
     for product in products:
         product_data = {
@@ -135,6 +146,9 @@ def process_csv(csv_file):
     product_data_list = []
     
     for _, row in df.iterrows():
+        if not row.get("artikel_nr", ""):  # Exclure les lignes sans `artikel_nr`
+            continue
+        
         try:
             product_data = (
                 f"drd.{row.get('artikel_nr', '')}",
