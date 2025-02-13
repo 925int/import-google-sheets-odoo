@@ -46,7 +46,7 @@ def get_db_connection():
         password=POSTGRES_PASSWORD
     )
 
-def create_or_update_product(product_data):
+def create_or_update_product(product_data, supplier_data):
     # Vérifier si le code-barres existe déjà
     if product_data['barcode']:
         existing_barcode = odoo.execute_kw(ODOO_DB, uid, ODOO_API_KEY, 'product.template', 'search', [[['barcode', '=', product_data['barcode']]]])
@@ -55,15 +55,24 @@ def create_or_update_product(product_data):
             product_data['barcode'] = ""  # Supprimer le code-barres avant l'importation
     
     # Vérifier si le produit existe déjà via default_code
-    existing_product = odoo.execute_kw(ODOO_DB, uid, ODOO_API_KEY, 'product.template', 'search_read', [[['default_code', '=', product_data['default_code']]]], {'fields': ['id']})
+    existing_product = odoo.execute_kw(ODOO_DB, uid, ODOO_API_KEY, 'product.template', 'search_read', [[['default_code', '=', product_data['default_code']]]], {'fields': ['id', 'list_price', 'standard_price']})
     
     if existing_product:
         product_id = existing_product[0]['id']
-        odoo.execute_kw(ODOO_DB, uid, ODOO_API_KEY, 'product.template', 'write', [[product_id], product_data])
-        print(f"🔄 Produit mis à jour : {product_data['name']}")
+        price_update = {
+            'list_price': product_data['list_price'],
+            'standard_price': product_data['standard_price']
+        }
+        odoo.execute_kw(ODOO_DB, uid, ODOO_API_KEY, 'product.template', 'write', [[product_id], price_update])
+        print(f"🔄 Prix mis à jour pour : {product_data['name']}")
     else:
-        odoo.execute_kw(ODOO_DB, uid, ODOO_API_KEY, 'product.template', 'create', [product_data])
+        product_id = odoo.execute_kw(ODOO_DB, uid, ODOO_API_KEY, 'product.template', 'create', [product_data])
         print(f"✅ Nouveau produit importé : {product_data['name']}")
+    
+    # Ajouter le fournisseur
+    supplier_data['product_tmpl_id'] = product_id
+    odoo.execute_kw(ODOO_DB, uid, ODOO_API_KEY, 'product.supplierinfo', 'create', [supplier_data])
+    print(f"✅ Fournisseur ajouté : {supplier_data['name']}")
 
 def process_uploaded_file():
     csv_file = os.path.join(UPLOAD_FOLDER, "Derendinger - PF-9208336.csv")
@@ -88,22 +97,6 @@ def process_csv(csv_file):
         df["UVP exkl. MwSt."] = df["UVP exkl. MwSt."].astype(str).str.replace(',', '.').astype(float)
         df["Nettopreis exkl. MwSt."] = df["Nettopreis exkl. MwSt."].astype(str).str.replace(',', '.').astype(float)
 
-        # Correction du format des codes EAN pour éviter la notation scientifique
-        df["EAN-Code"] = df["EAN-Code"].apply(lambda x: f"{int(float(x))}" if isinstance(x, str) and x.replace('.', '', 1).isdigit() else x)
-
-        # Nettoyage des espaces dans "Artikel-Nr."
-        df["Artikel-Nr."] = df["Artikel-Nr."].str.replace(" ", "")
-
-        # Création de la colonne "Fournisseurs / ID externe" avec préfixe "drd."
-        df["Fournisseurs / ID externe"] = "drd." + df["Artikel-Nr."]
-
-        # Remplacement des valeurs "9208336" par "Derendinger AG" dans "Kunden-Nr"
-        df["Kunden-Nr"] = df["Kunden-Nr"].replace("9208336", "Derendinger AG")
-        
-        # Ajout de la colonne de mise à jour
-        df["date_mise_a_jour"] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-        df["maj_odoo"] = "Non"
-        
         # Renommer les colonnes
         df.rename(columns={
             "Kunden-Nr": "Fournisseurs / Fournisseur",
@@ -113,9 +106,6 @@ def process_csv(csv_file):
             "Nettopreis exkl. MwSt.": "Fournisseurs / Prix",
             "EAN-Code": "Code-barres"
         }, inplace=True)
-        
-        # Dupliquer "Fournisseurs / Prix" sous "Standard_Price"
-        df["Standard_Price"] = df["Fournisseurs / Prix"]
     except Exception as e:
         return f"❌ Erreur lors du chargement du fichier CSV : {str(e)}"
     
@@ -125,13 +115,19 @@ def process_csv(csv_file):
         product_data = {
             'name': row.get("Nom", ""),
             'list_price': float(row.get("Prix de vente", "0")),
-            'standard_price': float(row.get("Standard_Price", "0")),
+            'standard_price': float(row.get("Fournisseurs / Prix", "0")),
             'barcode': row.get("Code-barres", ""),
             'default_code': row.get("Fournisseurs / Code du produit du fournisseur", ""),
         }
-        create_or_update_product(product_data)
+        supplier_data = {
+            'name': row.get("Fournisseurs / Fournisseur", ""),
+            'product_code': row.get("Fournisseurs / ID externe", ""),
+            'price': float(row.get("Fournisseurs / Prix", "0")),
+            'delay': 1,
+        }
+        create_or_update_product(product_data, supplier_data)
     
-    return "✅ Importation des produits dans Odoo terminée."
+    return "✅ Importation des produits et fournisseurs dans Odoo terminée."
 
 if __name__ == '__main__':
     print("📂 Vérification des fichiers uploadés...")
