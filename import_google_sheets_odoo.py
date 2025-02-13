@@ -46,6 +46,32 @@ def get_db_connection():
         password=POSTGRES_PASSWORD
     )
 
+def insert_into_postgres(product_data):
+    if not product_data:
+        print("⚠️ Aucune donnée à insérer dans PostgreSQL.")
+        return
+    
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        execute_values(cursor, '''
+            INSERT INTO products (id_externe, default_code, product_name, list_price, standard_price, last_updated)
+            VALUES %s
+            ON CONFLICT (default_code) DO UPDATE 
+            SET list_price = EXCLUDED.list_price,
+                standard_price = EXCLUDED.standard_price,
+                last_updated = NOW()
+        ''', product_data)
+        conn.commit()
+        cursor.execute("SELECT COUNT(*) FROM products;")
+        row_count = cursor.fetchone()[0]
+        print(f"✅ Nombre de lignes en base après insertion : {row_count}")
+    except Exception as e:
+        print(f"❌ Erreur lors de l'insertion dans PostgreSQL : {e}")
+    finally:
+        cursor.close()
+        conn.close()
+
 def process_uploaded_file():
     csv_file = os.path.join(UPLOAD_FOLDER, "Derendinger - PF-9208336.csv")
     if not os.path.exists(csv_file):
@@ -89,6 +115,7 @@ def process_csv(csv_file):
             continue
     
     print(f"🟢 Nombre d'articles à insérer dans PostgreSQL : {len(product_data_list)}")
+    insert_into_postgres(product_data_list)
     return "✅ Importation des produits terminée."
 
 if __name__ == '__main__':
