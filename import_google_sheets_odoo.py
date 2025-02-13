@@ -71,6 +71,19 @@ def create_table():
     cursor.close()
     conn.close()
 
+def insert_into_postgres(product_code, supplier_id, price):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute('''
+        INSERT INTO product_import (product_code, supplier_id, price, last_updated)
+        VALUES (%s, %s, %s, NOW())
+        ON CONFLICT (product_code) DO UPDATE 
+        SET price = EXCLUDED.price, last_updated = NOW()
+    ''', (product_code, supplier_id, price))
+    conn.commit()
+    cursor.close()
+    conn.close()
+
 def create_or_update_product(product_data, supplier_data):
     # Vérifier si le code-barres existe déjà
     if product_data['barcode']:
@@ -99,6 +112,9 @@ def create_or_update_product(product_data, supplier_data):
     supplier_data['product_tmpl_id'] = product_id
     odoo.execute_kw(ODOO_DB, uid, ODOO_API_KEY, 'product.supplierinfo', 'create', [supplier_data])
     print(f"✅ Fournisseur ajouté : {supplier_data['partner_id']}")
+    
+    # Insérer dans PostgreSQL
+    insert_into_postgres(supplier_data['product_code'], supplier_data['partner_id'], supplier_data['price'])
 
 def process_uploaded_file():
     csv_file = os.path.join(UPLOAD_FOLDER, "Derendinger - PF-9208336.csv")
