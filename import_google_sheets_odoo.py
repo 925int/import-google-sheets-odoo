@@ -85,10 +85,10 @@ def insert_into_postgres(product_data):
         execute_values(cursor, '''
             INSERT INTO products (id_externe, default_code, product_name, list_price, standard_price, product_tag, last_updated)
             VALUES %s
-            ON CONFLICT (default_code) DO NOTHING 
-            SET list_price = EXCLUDED.list_price,
-                standard_price = EXCLUDED.standard_price,
-                product_tag = EXCLUDED.product_tag,
+            ON CONFLICT (default_code) DO UPDATE 
+            SET list_price = COALESCE(EXCLUDED.list_price, products.list_price),
+                standard_price = COALESCE(EXCLUDED.standard_price, products.standard_price),
+                product_tag = COALESCE(EXCLUDED.product_tag, products.product_tag),
                 last_updated = NOW()
         ''', product_data)
         conn.commit()
